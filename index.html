@@ -1,15 +1,21 @@
 <!DOCTYPE html>
+<!--
+  安全配送 まとめてアプリ (Safety Delivery Matomete App)
+  © 2026 南野. All rights reserved.
+  Unauthorized copying or redistribution of this file is strictly prohibited.
+-->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-
 <!-- PWA 基本設定 -->
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="まとめてアプリ">
 <meta name="theme-color" content="#0D3D9E">
 <meta name="description" content="配送センター向け業務支援ポータル">
+<meta name="author" content="南野">
+<meta name="copyright" content="© 2026 南野. All rights reserved.">
 
 <!-- アイコン・マニフェスト -->
 <link rel="manifest" href="manifest.json">
@@ -1645,9 +1651,79 @@ header {
   font-family: inherit;
 }
 .reach-mini-btn:active { opacity: .7; }
+
+/* ===== ウォーターマーク ===== */
+#watermark {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  overflow: hidden;
+}
+#watermark svg {
+  width: 100%;
+  height: 100%;
+}
 </style>
 </head>
 <body>
+
+<!-- ウォーターマーク：© 南野 / pointer-events:none で操作に影響しない -->
+<div id="watermark" aria-hidden="true">
+  <svg viewBox="0 0 390 844" preserveAspectRatio="xMidYMid slice"
+       xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="wmGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#0D3D9E" stop-opacity="0.045"/>
+        <stop offset="100%" stop-color="#3F8CEF" stop-opacity="0.028"/>
+      </linearGradient>
+    </defs>
+
+    <!-- 斜めに繰り返すテキストパターン -->
+    <g transform="rotate(-28, 195, 422)" fill="none" font-family="'Noto Sans JP', 'BIZ UDPGothic', sans-serif">
+
+      <!-- Row 1 -->
+      <text x="-60"  y="120" font-size="11" font-weight="700" letter-spacing="2" fill="url(#wmGrad)">© 南野　安全配送まとめてアプリ　© 南野　安全配送まとめてアプリ</text>
+      <text x="-60"  y="148" font-size="9"  font-weight="500" letter-spacing="3" fill="url(#wmGrad)" opacity="0.7">MINAMINŌ  ·  SAFETY DELIVERY PORTAL  ·  MINAMINŌ  ·  SAFETY DELIVERY PORTAL</text>
+
+      <!-- Row 2 -->
+      <text x="-120" y="220" font-size="11" font-weight="700" letter-spacing="2" fill="url(#wmGrad)">© 南野　安全配送まとめてアプリ　© 南野　安全配送まとめてアプリ</text>
+      <text x="-120" y="248" font-size="9"  font-weight="500" letter-spacing="3" fill="url(#wmGrad)" opacity="0.7">MINAMINŌ  ·  SAFETY DELIVERY PORTAL  ·  MINAMINŌ  ·  SAFETY DELIVERY PORTAL</text>
+
+      <!-- Row 3 -->
+      <text x="-60"  y="320" font-size="11" font-weight="700" letter-spacing="2" fill="url(#wmGrad)">© 南野　安全配送まとめてアプリ　© 南野　安全配送まとめてアプリ</text>
+      <text x="-60"  y="348" font-size="9"  font-weight="500" letter-spacing="3" fill="url(#wmGrad)" opacity="0.7">MINAMINŌ  ·  SAFETY DELIVERY PORTAL  ·  MINAMINŌ  ·  SAFETY DELIVERY PORTAL</text>
+
+      <!-- Row 4 -->
+      <text x="-120" y="420" font-size="11" font-weight="700" letter-spacing="2" fill="url(#wmGrad)">© 南野　安全配送まとめてアプリ　© 南野　安全配送まとめてアプリ</text>
+      <text x="-120" y="448" font-size="9"  font-weight="500" letter-spacing="3" fill="url(#wmGrad)" opacity="0.7">MINAMINŌ  ·  SAFETY DELIVERY PORTAL  ·  MINAMINŌ  ·  SAFETY DELIVERY PORTAL</text>
+
+      <!-- Row 5 -->
+      <text x="-60"  y="520" font-size="11" font-weight="700" letter-spacing="2" fill="url(#wmGrad)">© 南野　安全配送まとめてアプリ　© 南野　安全配送まとめてアプリ</text>
+      <text x="-60"  y="548" font-size="9"  font-weight="500" letter-spacing="3" fill="url(#wmGrad)" opacity="0.7">MINAMINŌ  ·  SAFETY DELIVERY PORTAL  ·  MINAMINŌ  ·  SAFETY DELIVERY PORTAL</text>
+
+      <!-- Row 6 -->
+      <text x="-120" y="620" font-size="11" font-weight="700" letter-spacing="2" fill="url(#wmGrad)">© 南野　安全配送まとめてアプリ　© 南野　安全配送まとめてアプリ</text>
+      <text x="-120" y="648" font-size="9"  font-weight="500" letter-spacing="3" fill="url(#wmGrad)" opacity="0.7">MINAMINŌ  ·  SAFETY DELIVERY PORTAL  ·  MINAMINŌ  ·  SAFETY DELIVERY PORTAL</text>
+
+      <!-- Row 7 -->
+      <text x="-60"  y="720" font-size="11" font-weight="700" letter-spacing="2" fill="url(#wmGrad)">© 南野　安全配送まとめてアプリ　© 南野　安全配送まとめてアプリ</text>
+      <text x="-60"  y="748" font-size="9"  font-weight="500" letter-spacing="3" fill="url(#wmGrad)" opacity="0.7">MINAMINŌ  ·  SAFETY DELIVERY PORTAL  ·  MINAMINŌ  ·  SAFETY DELIVERY PORTAL</text>
+
+      <!-- Row 8 -->
+      <text x="-120" y="820" font-size="11" font-weight="700" letter-spacing="2" fill="url(#wmGrad)">© 南野　安全配送まとめてアプリ　© 南野　安全配送まとめてアプリ</text>
+      <text x="-120" y="848" font-size="9"  font-weight="500" letter-spacing="3" fill="url(#wmGrad)" opacity="0.7">MINAMINŌ  ·  SAFETY DELIVERY PORTAL  ·  MINAMINŌ  ·  SAFETY DELIVERY PORTAL</text>
+    </g>
+
+    <!-- 中央: 大きな透かし「H.」イニシャル -->
+    <text x="195" y="445" text-anchor="middle" dominant-baseline="middle"
+          font-family="Georgia, 'Times New Roman', serif"
+          font-size="180" font-weight="700"
+          fill="#0D3D9E" fill-opacity="0.018"
+          letter-spacing="-4">H.</text>
+  </svg>
+</div>
+
 <div id="app">
 
   <!-- ヘッダー -->
@@ -2857,12 +2933,16 @@ function openAppInfo() {
           ['バックエンド', 'Firebase（Firestore / FCM）'],
           ['認証', 'LINE Login（LIFF）'],
           ['開発・運用', '配送センター 管理部'],
+          ['著作権者', '南野'],
         ].map(([k,v]) => `
           <div style="display:flex;justify-content:space-between;padding:10px 4px;border-bottom:1px solid var(--border);font-size:13px">
             <span style="color:var(--text-muted)">${k}</span>
             <span style="font-weight:600;color:var(--navy)">${v}</span>
           </div>
         `).join('')}
+        <p style="margin-top:18px;font-size:12px;color:var(--text-muted);letter-spacing:.04em">
+          © 2026 南野. All rights reserved.
+        </p>
         <p style="margin-top:24px;font-size:11px;letter-spacing:.32em;color:var(--primary);font-weight:700">未来を、共に。</p>
       </div>
     </div>
