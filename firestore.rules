@@ -18,6 +18,20 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/users/$(myCode())).data.role == 'admin';
     }
 
+    // 自分のusersドキュメント本体（team/name/role等の参照に使う）
+    // 同一ドキュメントへの複数回のget()はルール評価内でキャッシュされるため、
+    // isAdmin()と重複呼び出しになってもコストは増えない
+    function myUserDoc() {
+      return get(/databases/$(database)/documents/users/$(myCode())).data;
+    }
+
+    // チャンネル閲覧可否: general/safety等(teamId:'all')は全員、
+    // 班チャンネルは自分の所属班のみ、adminは常に全チャンネル閲覧可
+    function channelVisible(channelId) {
+      let ch = get(/databases/$(database)/documents/channels/$(channelId)).data;
+      return ch.teamId == 'all' || ch.teamId == myUserDoc().team || isAdmin();
+    }
+
     match /users/{code} {
       // 本人 or admin は個別取得可
       allow get: if isSignedIn() && (myCode() == code || isAdmin());
@@ -36,6 +50,45 @@ service cloud.firestore {
     match /announcements/{id} {
       allow read: if isSignedIn();
       allow create, update, delete: if isAdmin();
+    }
+
+    // 班マスター(9班体制)。読み取りは全認証ユーザー、書き込みはadminのみ
+    match /teams/{teamId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /channels/{channelId} {
+      // 一覧・個別取得ともteamId('all'|team_a〜team_i)で可視性を判定
+      allow get, list: if isSignedIn()
+        && (resource.data.teamId == 'all' || resource.data.teamId == myUserDoc().team || isAdmin());
+      // チャンネル自体の作成・更新(lastMessage併記含む)・削除はadminのみ
+      allow create, update, delete: if isAdmin();
+
+      match /messages/{messageId} {
+        // 閲覧は親チャンネルの可視性ルールに従う
+        allow read: if isSignedIn() && channelVisible(channelId);
+
+        // 投稿: チャンネルが見えるユーザーのみ。senderUid/senderName/senderRoleは
+        // リクエスト者本人のusersドキュメントと一致する値のみ許可(なりすまし防止)
+        allow create: if isSignedIn()
+          && channelVisible(channelId)
+          && request.resource.data.senderUid  == myCode()
+          && request.resource.data.senderName == myUserDoc().name
+          && request.resource.data.senderRole == myUserDoc().role
+          && request.resource.data.deleted == false;
+
+        // 削除はadminのみ、かつ deleted:true へのソフト削除(update)限定。
+        // deletedByは操作したadmin本人のコードで固定(なりすまし防止)
+        allow update: if isAdmin()
+          && request.resource.data.diff(resource.data)
+             .affectedKeys().hasOnly(['deleted', 'deletedBy', 'deletedAt'])
+          && request.resource.data.deleted == true
+          && request.resource.data.deletedBy == myCode();
+
+        // 物理削除は全ロールで禁止
+        allow delete: if false;
+      }
     }
 
     // 上記以外のコレクションはデフォルト拒否(明示不要だが漏れ防止)
