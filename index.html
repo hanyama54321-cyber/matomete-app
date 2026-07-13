@@ -25,6 +25,25 @@
 
 <title>安全配送 まとめてアプリ</title>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+
+<!-- ===== Firebase SDK (compat版) ===== -->
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyBDEk7luVCDDJooPwG6BU0r1qX8GROc6rY",
+  authDomain: "anzen-matomete-app.firebaseapp.com",
+  projectId: "anzen-matomete-app",
+  storageBucket: "anzen-matomete-app.firebasestorage.app",
+  messagingSenderId: "163103621501",
+  appId: "1:163103621501:web:53410bbe65778f5d154c14",
+  measurementId: "G-FQKRCR30BY"
+};
+firebase.initializeApp(firebaseConfig);
+const fbAuth = firebase.auth();
+const fbDb   = firebase.firestore();
+</script>
 <style>
 /* ===== テーマ変数 ===== */
 :root {
@@ -1664,6 +1683,88 @@ header {
   width: 100%;
   height: 100%;
 }
+
+/* ===== ログイン画面 (Firebase認証) ===== */
+#login-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 5000;
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.login-card {
+  width: 100%;
+  max-width: 360px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 32px 24px;
+  box-shadow: 0 8px 32px rgba(13,41,75,.08);
+}
+.login-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--navy);
+  text-align: center;
+  margin-bottom: 4px;
+}
+.login-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+  letter-spacing: .08em;
+  margin-bottom: 24px;
+}
+.login-field { margin-bottom: 16px; }
+.login-field label {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--navy);
+  margin-bottom: 6px;
+}
+.login-field input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-size: 16px;
+  font-family: inherit;
+  background: var(--surface2);
+  color: var(--text);
+}
+.login-field input:focus {
+  outline: none;
+  border-color: var(--primary);
+  background: var(--surface);
+}
+.login-btn {
+  width: 100%;
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 13px;
+  font-size: 15px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  margin-top: 8px;
+}
+.login-btn:disabled { background: #A9B7CE; cursor: not-allowed; }
+.login-error {
+  background: rgba(217,58,63,.08);
+  border: 1px solid rgba(217,58,63,.3);
+  color: var(--danger);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
 </style>
 </head>
 <body>
@@ -1724,7 +1825,30 @@ header {
   </svg>
 </div>
 
-<div id="app">
+<!-- ===== ログイン画面 (Firebase認証) ===== -->
+<div id="login-screen" style="display:none">
+  <div class="login-card">
+    <div class="login-title">安全配送 まとめてアプリ</div>
+    <div class="login-sub">SAFETY DELIVERY PORTAL</div>
+    <div id="login-error" class="login-error" style="display:none"></div>
+    <form id="login-form" onsubmit="handleLogin(event)">
+      <div class="login-field">
+        <label for="login-code">乗務員コード（5桁）</label>
+        <input id="login-code" type="text" inputmode="text" autocomplete="username"
+               maxlength="5" placeholder="例: 10168" required
+               pattern="[A-Za-z0-9]{5}" title="英数字5桁で入力してください">
+      </div>
+      <div class="login-field">
+        <label for="login-password">パスワード</label>
+        <input id="login-password" type="password" autocomplete="current-password"
+               placeholder="パスワード" required>
+      </div>
+      <button id="login-btn" type="submit" class="login-btn">ログイン</button>
+    </form>
+  </div>
+</div>
+
+<div id="app" style="display:none">
 
   <!-- ヘッダー -->
   <header>
@@ -1831,6 +1955,14 @@ header {
           <div style="font-size:11px;color:var(--text-muted);margin-top:1px">Ver. 0.1 · 安全配送まとめてアプリ</div>
         </div>
       </button>
+      <button id="um-user-mgmt-btn" class="user-menu-item hidden" onclick="openUserManagement()">
+        <span class="um-icon">🗂️</span>
+        <div style="flex:1">
+          <div style="font-weight:700">ユーザー管理</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:1px">コード検索・役割変更（管理者のみ）</div>
+        </div>
+        <span style="font-size:12px;color:var(--text-muted)">›</span>
+      </button>
       <button class="user-menu-item danger" onclick="signOut()">
         <span class="um-icon">🚪</span>
         <div>
@@ -1840,7 +1972,8 @@ header {
       </button>
     </div>
 
-    <!-- 管理者切替用ロールメニュー（admin-toggle-btn のドロップダウン）-->
+    <!-- 管理者切替用ロールメニュー（admin-toggle-btn のドロップダウン）
+         Firebase認証導入に伴い無効化。切り戻し用に残置（コメントアウト）
     <div id="role-menu" class="role-menu hidden" style="top:50px;right:16px">
       <div style="padding:10px 14px 8px;font-size:10px;font-weight:700;color:var(--text-muted);letter-spacing:.12em;background:var(--surface2)">
         🛠 モード切替（開発用）
@@ -1862,6 +1995,7 @@ header {
         <span id="role-check-manager" style="color:var(--primary);font-size:14px;visibility:hidden">✓</span>
       </button>
     </div>
+    -->
   </header>
 
   <!-- メインコンテンツ -->
@@ -2756,7 +2890,7 @@ function mkCircuitSvg(color='var(--primary)', opacity=0.12) {
 function toggleUserMenu() {
   const menu = document.getElementById('user-menu');
   const roleMenu = document.getElementById('role-menu');
-  roleMenu.classList.add('hidden'); // role-menuは確実に閉じる
+  if (roleMenu) roleMenu.classList.add('hidden'); // role-menu無効化に伴いnullチェック
   menu.classList.toggle('hidden');
 }
 
@@ -2958,8 +3092,15 @@ function openAppInfo() {
 function signOut() {
   closeUserMenu();
   if (!confirm('ログアウトしますか？')) return;
+  fbAuth.signOut(); // → onAuthStateChanged がログイン画面へ切り替える
+}
+/* 旧モック実装（切り戻し用）
+function signOut() {
+  closeUserMenu();
+  if (!confirm('ログアウトしますか？')) return;
   showToast('🚪 ログアウトしました（モック）');
 }
+*/
 
 /* ===== 管理者モード切替ボタン ===== */
 
@@ -2973,7 +3114,7 @@ function toggleAdminMode() {
   const roleMenu = document.getElementById('role-menu');
   const userMenu = document.getElementById('user-menu');
   userMenu.classList.add('hidden');
-  roleMenu.classList.toggle('hidden');
+  if (roleMenu) roleMenu.classList.toggle('hidden'); // role-menu無効化に伴いnullチェック
 }
 
 function toggleRoleMenu() {
@@ -2983,7 +3124,9 @@ function toggleRoleMenu() {
 function setRole(role) {
   st.role = role;
   st.currentUid = role === 'manager' ? 'mgr' : 'u01';
-  document.getElementById('role-menu').classList.add('hidden');
+  // role-menuはFirebase認証導入に伴い無効化済み（要素が存在しない場合はスキップ）
+  const roleMenuEl = document.getElementById('role-menu');
+  if (roleMenuEl) roleMenuEl.classList.add('hidden');
 
   // 管理者切替ボタンのスタイル更新
   const btn = document.getElementById('admin-toggle-btn');
@@ -2992,11 +3135,15 @@ function setRole(role) {
   if (lbl) lbl.textContent = role === 'manager' ? '管理者 ON' : '管理者';
 
   // ユーザーメニューのアバターは常にドライバー情報（南野）を表示
-  // ※管理者モードでも「誰がログインしているか」は変わらない
+  // ※管理者モードでも「誰がユーザー管理項目を表示するかはFirestoreのroleで決まる）
+  const userMgmtBtn = document.getElementById('um-user-mgmt-btn');
+  if (userMgmtBtn) userMgmtBtn.classList.toggle('hidden', role !== 'manager');
 
-  // メニュー内のチェックマーク切替
-  document.getElementById('role-check-driver').style.visibility  = role === 'driver'  ? 'visible' : 'hidden';
-  document.getElementById('role-check-manager').style.visibility = role === 'manager' ? 'visible' : 'hidden';
+  // メニュー内のチェックマーク切替（role-menu無効化に伴い要素が存在しない場合はスキップ）
+  const chkDriver  = document.getElementById('role-check-driver');
+  const chkManager = document.getElementById('role-check-manager');
+  if (chkDriver)  chkDriver.style.visibility  = role === 'driver'  ? 'visible' : 'hidden';
+  if (chkManager) chkManager.style.visibility = role === 'manager' ? 'visible' : 'hidden';
 
   // 管理者バナーと新規投稿ボタンの表示切替
   document.getElementById('admin-banner').classList.toggle('hidden', role !== 'manager');
@@ -6097,6 +6244,279 @@ function applyRoleToAllTabs() {
   renderFbTab();
 }
 
+/* ===== Firebase認証（ログイン画面 + 認証ゲート） ===== */
+
+const AUTH_EMAIL_DOMAIN = '@matomete.local';
+const AUTH_PW_SUFFIX    = '_mtm';   // Firebase Authの6文字制約対応（seed.htmlと一致させること）
+
+// ログイン中ユーザーのFirestoreデータ（users/{コード}）
+let fbUser = null;   // { code, name, role, team, passwordChanged }
+
+function showLoginError(msg) {
+  const el = document.getElementById('login-error');
+  el.textContent = msg;
+  el.style.display = msg ? 'block' : 'none';
+}
+
+async function handleLogin(e) {
+  e.preventDefault();
+  const btn  = document.getElementById('login-btn');
+  const code = document.getElementById('login-code').value.trim().toUpperCase();
+  const pw   = document.getElementById('login-password').value;
+  showLoginError('');
+  btn.disabled = true;
+  btn.textContent = 'ログイン中...';
+  try {
+    await fbAuth.signInWithEmailAndPassword(code + AUTH_EMAIL_DOMAIN, pw + AUTH_PW_SUFFIX);
+    // 成功 → onAuthStateChanged がアプリ表示へ切り替える
+  } catch (err) {
+    if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found'
+        || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-email') {
+      showLoginError('乗務員コードまたはパスワードが違います');
+    } else if (err.code === 'auth/too-many-requests') {
+      showLoginError('試行回数が多すぎます。しばらく待ってから再度お試しください');
+    } else if (err.code === 'auth/network-request-failed') {
+      showLoginError('通信エラーです。電波状況を確認してください');
+    } else {
+      showLoginError('ログインに失敗しました（' + (err.code || err.message) + '）');
+    }
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'ログイン';
+  }
+}
+
+function showLoginScreen() {
+  fbUser = null;
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('login-screen').style.display = 'flex';
+  document.getElementById('login-password').value = '';
+}
+
+function showAppScreen() {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app').style.display = '';
+}
+
+/* ===== 初回パスワード変更モーダル ===== */
+
+function openPasswordChangeModal() {
+  openModal(`
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title">🔑 パスワード変更のお願い</div>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px;line-height:1.6">
+          初期パスワードのままです。セキュリティのため、新しいパスワードへの変更をお願いします。
+        </p>
+        <div id="pw-change-error" class="login-error" style="display:none"></div>
+        <div class="login-field">
+          <label for="pw-new1">新しいパスワード</label>
+          <input id="pw-new1" type="password" autocomplete="new-password" minlength="6" placeholder="6文字以上の半角英数字">
+        </div>
+        <div class="login-field">
+          <label for="pw-new2">新しいパスワード（確認）</label>
+          <input id="pw-new2" type="password" autocomplete="new-password" minlength="6" placeholder="もう一度入力してください">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" style="flex:1" onclick="skipPasswordChange()">あとで</button>
+        <button id="pw-change-btn" class="btn btn-primary" style="flex:1" onclick="submitPasswordChange()">変更する</button>
+      </div>
+    </div>
+  `);
+}
+
+function showPwChangeError(msg) {
+  const el = document.getElementById('pw-change-error');
+  if (!el) return;
+  el.textContent = msg;
+  el.style.display = msg ? 'block' : 'none';
+}
+
+function skipPasswordChange() {
+  closeModal();
+}
+
+async function submitPasswordChange() {
+  const pw1 = document.getElementById('pw-new1').value;
+  const pw2 = document.getElementById('pw-new2').value;
+  const btn = document.getElementById('pw-change-btn');
+  showPwChangeError('');
+
+  if (pw1.length < 6) {
+    showPwChangeError('6文字以上の半角英数字で入力してください');
+    return;
+  }
+  if (pw1 !== pw2) {
+    showPwChangeError('新しいパスワードが一致しません');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = '変更中...';
+  try {
+    await fbAuth.currentUser.updatePassword(pw1 + AUTH_PW_SUFFIX);
+
+    // ルール上、本人による更新は passwordChanged フィールドのみ許可されているため単独更新
+    await fbDb.collection('users').doc(fbUser.code).update({ passwordChanged: true });
+    fbUser.passwordChanged = true;
+
+    closeModal();
+    showToast('✓ パスワードを変更しました');
+  } catch (err) {
+    if (err.code === 'auth/requires-recent-login') {
+      showPwChangeError('セキュリティのため、再度ログインしてから変更してください');
+      await fbAuth.signOut();
+      return;
+    } else if (err.code === 'auth/weak-password') {
+      showPwChangeError('パスワードが簡単すぎます。別のパスワードにしてください');
+    } else {
+      showPwChangeError('変更に失敗しました（' + (err.code || err.message) + '）');
+    }
+    btn.disabled = false;
+    btn.textContent = '変更する';
+  }
+}
+
+/* ===== ユーザー管理（管理者のみ） ===== */
+
+let umAllUsers = []; // openUserManagement中に取得した全ユーザーのキャッシュ
+
+async function openUserManagement() {
+  closeUserMenu();
+  openModal(`
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title">🗂️ ユーザー管理</div>
+        <button class="modal-close" onclick="closeModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="login-field" style="margin-bottom:12px">
+          <input id="um-search" type="text" placeholder="コード・氏名で検索"
+                 oninput="renderUserManagementList()"
+                 style="width:100%;box-sizing:border-box;border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:14px;font-family:inherit">
+        </div>
+        <div id="um-error" class="login-error" style="display:none"></div>
+        <div id="um-list">読み込み中...</div>
+      </div>
+    </div>
+  `);
+
+  try {
+    const snap = await fbDb.collection('users').get();
+    umAllUsers = [];
+    snap.forEach(doc => umAllUsers.push({ code: doc.id, ...doc.data() }));
+    renderUserManagementList();
+  } catch (err) {
+    const list = document.getElementById('um-list');
+    if (list) list.innerHTML = `<p style="font-size:13px;color:var(--danger)">読み込みに失敗しました（${err.code || err.message}）</p>`;
+  }
+}
+
+function renderUserManagementList() {
+  const listEl = document.getElementById('um-list');
+  if (!listEl) return;
+  const kw = (document.getElementById('um-search').value || '').trim().toUpperCase();
+  const filtered = umAllUsers.filter(u =>
+    !kw || u.code.toUpperCase().includes(kw) || (u.name || '').toUpperCase().includes(kw)
+  );
+
+  if (filtered.length === 0) {
+    listEl.innerHTML = `<p style="font-size:13px;color:var(--text-muted)">該当するユーザーがいません</p>`;
+    return;
+  }
+
+  listEl.innerHTML = filtered.map(u => {
+    const isSelf = u.code === fbUser.code;
+    return `
+      <div class="card" style="margin-bottom:8px;padding:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+          <div style="min-width:0">
+            <div style="font-weight:700;color:var(--navy)">${u.name || '(氏名未設定)'} <span style="font-size:11px;color:var(--text-muted);font-weight:400">${u.code}</span></div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${u.team || '—'}</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+            <select id="um-role-${u.code}" ${isSelf ? 'disabled' : ''}
+                    style="border:1px solid var(--border);border-radius:6px;padding:5px 8px;font-size:12px;font-family:inherit">
+              <option value="driver" ${u.role === 'driver' ? 'selected' : ''}>driver</option>
+              <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>admin</option>
+            </select>
+            <button class="btn btn-primary" style="padding:6px 10px;font-size:12px"
+                    ${isSelf ? 'disabled' : ''}
+                    onclick="changeUserRole('${u.code}')">変更</button>
+          </div>
+        </div>
+        ${isSelf ? '<div style="font-size:11px;color:var(--text-muted);margin-top:6px">ご自身の権限は変更できません</div>' : ''}
+      </div>
+    `;
+  }).join('');
+}
+
+async function changeUserRole(code) {
+  const select = document.getElementById(`um-role-${code}`);
+  const newRole = select.value;
+  const target = umAllUsers.find(u => u.code === code);
+  if (!target) return;
+
+  if (newRole === target.role) {
+    showToast('変更はありません');
+    return;
+  }
+  if (!confirm(`${target.name}（${code}）の役割を「${newRole}」に変更しますか？`)) {
+    select.value = target.role; // キャンセル時は表示を戻す
+    return;
+  }
+
+  const errEl = document.getElementById('um-error');
+  errEl.style.display = 'none';
+  try {
+    await fbDb.collection('users').doc(code).update({ role: newRole });
+    target.role = newRole;
+    showToast(`✓ ${target.name}（${code}）の役割を変更しました`);
+    renderUserManagementList();
+  } catch (err) {
+    errEl.textContent = `変更に失敗しました（${err.code || err.message}）`;
+    errEl.style.display = 'block';
+  }
+}
+
+// 認証ゲート：ログイン状態に応じて画面を切り替える
+fbAuth.onAuthStateChanged(async (user) => {
+  if (!user) {
+    showLoginScreen();
+    return;
+  }
+  try {
+    // Firebase Authはメールを小文字で保存するため、正準形(大文字)に揃える
+    // ※ firestore.rules の myCode() と同じ正規化ルールであること
+    const code = user.email.split('@')[0].toUpperCase();
+    const snap = await fbDb.collection('users').doc(code).get();
+    if (!snap.exists) {
+      // Authにはいるが usersドキュメントがない（想定外の状態）
+      await fbAuth.signOut();
+      showLoginError('ユーザー情報が見つかりません。管理者に連絡してください');
+      return;
+    }
+    fbUser = { code, ...snap.data() };
+
+    // Firestoreの role("admin"/"driver") → 内部表記('manager'/'driver') へマッピング
+    // st.currentUid はモックusers配列への暫定マッピング（次フェーズで統合予定）
+    setRole(fbUser.role === 'admin' ? 'manager' : 'driver');
+
+    showAppScreen();
+
+    if (fbUser.passwordChanged === false) {
+      openPasswordChangeModal();
+    }
+  } catch (err) {
+    console.error('認証後のユーザー情報取得に失敗:', err);
+    await fbAuth.signOut();
+    showLoginError('ユーザー情報の取得に失敗しました。再度ログインしてください');
+  }
+});
+
 /* ===== 初期化 ===== */
 renderAnn();
 renderChat();
@@ -6105,7 +6525,7 @@ renderKYTList();
 renderFbCats();
 renderFbTab();
 renderGameTab();
-showAdminToggle(); // 開発用：管理者切替ボタンを表示
+// showAdminToggle(); // 開発用：管理者切替ボタン（Firebase認証導入に伴い無効化。切り戻し用に残置）
 </script>
 </body>
 </html>
