@@ -301,6 +301,11 @@ header {
   margin-bottom: 12px;
   padding-bottom: 2px;
 }
+/* ===== チップ折り返し（チャンネル選択など、全件を一覧表示したい場合） ===== */
+.chip-row.wrap {
+  flex-wrap: wrap;
+  overflow-x: visible;
+}
 
 /* ===== お知らせ ===== */
 .ann-item {
@@ -1929,7 +1934,7 @@ header {
         <div class="user-menu-av" id="um-avatar-icon">南</div>
         <div style="min-width:0">
           <div class="user-menu-name" id="um-name">南野</div>
-          <div class="user-menu-meta" id="um-meta">小笠原班 · O-12</div>
+          <div class="user-menu-meta" id="um-meta">D班（小笠原班） · D-12</div>
         </div>
       </div>
       <button class="user-menu-item" onclick="openProfileEdit()">
@@ -2045,13 +2050,7 @@ header {
         <span>管理者モード — メンバー確認・統計・全モデレーション可能</span>
       </div>
       <div id="chat-mgr-stats" class="hidden" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px"></div>
-      <div class="chip-row hide-scroll" id="channel-chips">
-        <button class="chip active" onclick="switchCh('general','全体連絡',this)"># 全体連絡</button>
-        <button class="chip" onclick="switchCh('ogasawara','小笠原班',this)"># 小笠原班</button>
-        <button class="chip" onclick="switchCh('sato','佐藤班',this)"># 佐藤班</button>
-        <button class="chip" onclick="switchCh('iwahara','祝原班',this)"># 祝原班</button>
-        <button class="chip" onclick="switchCh('safety','安全報告',this)"># 安全報告</button>
-      </div>
+      <div class="chip-row hide-scroll wrap" id="channel-chips"><!-- renderChannelChips() で動的生成 --></div>
       <div class="chat-wrap">
         <div class="chat-header">
           <span style="color:var(--primary)">#</span>
@@ -2393,23 +2392,58 @@ header {
 /* ===== データ ===== */
 
 // ユーザー一覧（既読率計算に使用）
-const users = [
-  { id:'u01', name:'南野',   team:'エリアB班', driverNo:'B-12', role:'driver' },
-  { id:'u02', name:'佐藤',   team:'エリアB班', driverNo:'B-08', role:'driver' },
-  { id:'u03', name:'鈴木',   team:'エリアC班', driverNo:'C-05', role:'driver' },
-  { id:'u04', name:'高橋',   team:'エリアC班', driverNo:'C-11', role:'driver' },
-  { id:'u05', name:'伊藤',   team:'エリアB班', driverNo:'B-03', role:'driver' },
-  { id:'u06', name:'渡辺',   team:'エリアC班', driverNo:'C-07', role:'driver' },
-  { id:'u07', name:'山本',   team:'エリアB班', driverNo:'B-21', role:'driver' },
-  { id:'u08', name:'中村',   team:'エリアC班', driverNo:'C-14', role:'driver' },
-  { id:'mgr', name:'田中',   team:'本部',      driverNo:'—',    role:'manager' },
-];
-
+/* ===== 班マスター（9班体制） =====
+   Firestore スキーマ: teams/{teamId}
+     - code        : 'A'〜'I'（恒久的な班コード。変更しない）
+     - leaderName  : 班長氏名（異動時にこの値だけ更新すればアプリ全体の表示に反映される）
+     - label       : 班の呼称（現在の班長名ベース。team_i のみ機能名）
+     - displayName : UI表示用文字列（下のmapで自動生成）
+   ※ team_id 自体（team_a〜team_i）は恒久キー。班長交代があっても id は変更しない。
+      表示だけを変えたい場合は leaderName / label を更新するだけでよい。 */
 const teams = [
-  { id:'all',   label:'全員',     count: 8 },
-  { id:'areaB', label:'エリアB班', count: 4 },
-  { id:'areaC', label:'エリアC班', count: 4 },
+  { id:'all',    code:null, leaderName:null,   label:'全員' },
+  { id:'team_a', code:'A',  leaderName:'中尾',  label:'中尾班' },
+  { id:'team_b', code:'B',  leaderName:'阿部',  label:'阿部班' },
+  { id:'team_c', code:'C',  leaderName:'利部',  label:'利部班' },
+  { id:'team_d', code:'D',  leaderName:'小笠原', label:'小笠原班' },
+  { id:'team_e', code:'E',  leaderName:'佐藤',  label:'佐藤班' },
+  { id:'team_f', code:'F',  leaderName:'小林',  label:'小林班' },
+  { id:'team_g', code:'G',  leaderName:'土井',  label:'土井班' },
+  { id:'team_h', code:'H',  leaderName:'熊谷',  label:'熊谷班' },
+  { id:'team_i', code:'I',  leaderName:null,   label:'安全指導班' },
+].map(t => ({
+  ...t,
+  displayName: t.id === 'all' ? '全員' : `${t.code}班（${t.label}）`,
+  count: 0, // recalcTeamCounts() で users から動的算出
+}));
+
+const getTeamLabel = id => (teams.find(t => t.id === id) || {}).label || id || '—';
+
+// 班人数を users から動的算出（Firestore実装では users コレクションを team で集計するクエリに置換）
+function recalcTeamCounts() {
+  const drivers = users.filter(u => u.role === 'driver');
+  teams.forEach(t => {
+    t.count = t.id === 'all' ? drivers.length : drivers.filter(u => u.team === t.id).length;
+  });
+}
+
+// ユーザー一覧（既読率計算に使用）／ team は teams[].id（team_a〜team_i）を参照
+const users = [
+  { id:'u01', name:'南野',   team:'team_d', driverNo:'D-12', role:'driver' },
+  { id:'u02', name:'佐藤',   team:'team_e', driverNo:'E-08', role:'driver' },
+  { id:'u03', name:'鈴木',   team:'team_c', driverNo:'C-05', role:'driver' },
+  { id:'u04', name:'高橋',   team:'team_h', driverNo:'H-11', role:'driver' },
+  { id:'u05', name:'伊藤',   team:'team_a', driverNo:'A-03', role:'driver' },
+  { id:'u06', name:'渡辺',   team:'team_g', driverNo:'G-07', role:'driver' },
+  { id:'u07', name:'山本',   team:'team_e', driverNo:'E-21', role:'driver' },
+  { id:'u08', name:'中村',   team:'team_b', driverNo:'B-14', role:'driver' },
+  { id:'u09', name:'小林',   team:'team_f', driverNo:'F-04', role:'driver' },
+  { id:'u10', name:'土井',   team:'team_g', driverNo:'G-02', role:'driver' },
+  { id:'u11', name:'熊谷',   team:'team_h', driverNo:'H-01', role:'driver' },
+  { id:'u12', name:'安田',   team:'team_i', driverNo:'I-01', role:'driver' },
+  { id:'mgr', name:'田中',   team:null,     driverNo:'—',    role:'manager' },
 ];
+recalcTeamCounts();
 
 // カテゴリ（タグ）定義
 const annCategories = [
@@ -2473,7 +2507,7 @@ const announcements = [
     body:"今期の模範配送員推薦を受け付けています。各チームリーダーは候補者を提出のこと。",
     category:'hr',
     priority:'low',
-    target:'areaB',
+    target:'team_d',
     pinned:false,
     mustRead:false,
     readDeadline:null,
@@ -2682,35 +2716,56 @@ const kytCompletions = {
   u08: { 6:{score:4, total:5, completedAt:'2026-06-18'} },
 };
 
-// チャンネルごとのメッセージストア
+/* ===== チャットメッセージ（モック） =====
+   Firestore スキーマ: channels/{channelId}/messages/{messageId}
+   channelId は 'general' | 'safety' | teams[].id（'team_a'〜'team_i'）
+   モック配列はそのまま onSnapshot / addDoc に置換可能 */
 const channelMessages = {
   general: [
     { id:1, from:"田中センター長", role:"manager", time:"09:05", text:"おはようございます。本日の追加便が発生しています。各班リーダーは確認をお願いします。", me:false },
-    { id:2, from:"小笠原", role:"driver", time:"09:08", text:"小笠原班、了解しました。", me:false },
-    { id:3, from:"祝原", role:"driver", time:"09:09", text:"祝原班も確認しました！", me:false },
+    { id:2, from:"小笠原", role:"driver", time:"09:08", text:"D班、了解しました。", me:false },
+    { id:3, from:"中尾", role:"driver", time:"09:09", text:"A班も確認しました！", me:false },
     { id:4, from:"田中センター長", role:"manager", time:"09:10", text:"ありがとうございます。詳細はシステムに登録済みです。よろしくお願いします！", me:false },
   ],
-  ogasawara: [
-    { id:1, from:"小笠原", role:"driver", time:"08:30", text:"小笠原班、本日の配車確認しました。ルートA・Bを担当します。", me:false },
+  team_a: [
+    { id:1, from:"中尾", role:"driver", time:"08:20", text:"A班、本日の配車確認しました。", me:false },
+    { id:2, from:"田中センター長", role:"manager", time:"08:22", text:"よろしくお願いします。", me:false },
+  ],
+  team_b: [
+    { id:1, from:"中村", role:"driver", time:"08:25", text:"B班、出発準備完了です。", me:false },
+  ],
+  team_c: [
+    { id:1, from:"鈴木", role:"driver", time:"08:28", text:"C班、本日は3名体制です。", me:false },
+  ],
+  team_d: [
+    { id:1, from:"小笠原", role:"driver", time:"08:30", text:"D班、本日の配車確認しました。ルートA・Bを担当します。", me:false },
     { id:2, from:"田中センター長", role:"manager", time:"08:32", text:"ありがとうございます。午後に追加2便あります。よろしくお願いします。", me:false },
     { id:3, from:"小笠原", role:"driver", time:"08:35", text:"承知しました！", me:false },
   ],
-  iwahara: [
-    { id:1, from:"祝原", role:"driver", time:"08:45", text:"祝原班です。本日は11名体制で出発します。", me:false },
-    { id:2, from:"田中センター長", role:"manager", time:"08:47", text:"了解です。雨天なので安全運転でお願いします！", me:false },
-    { id:3, from:"祝原", role:"driver", time:"08:49", text:"はい、全員に周知しました。行ってきます！", me:false },
-  ],
-  sato: [
-    { id:1, from:"佐藤", role:"driver", time:"08:38", text:"佐藤班です。本日は3名体制で出発します。配車表確認しました。", me:false },
+  team_e: [
+    { id:1, from:"佐藤", role:"driver", time:"08:38", text:"E班です。本日は3名体制で出発します。配車表確認しました。", me:false },
     { id:2, from:"田中センター長", role:"manager", time:"08:40", text:"ありがとうございます。エリア南側の追加納品もお願いします。", me:false },
     { id:3, from:"佐藤", role:"driver", time:"08:42", text:"了解しました。山本さんと2手に分かれて対応します。", me:false },
     { id:4, from:"山本", role:"driver", time:"09:15", text:"ルートC、納品完了しました。次のポイントへ移動します。", me:false },
     { id:5, from:"田中センター長", role:"manager", time:"09:17", text:"お疲れさまです。午後の追加便は14時以降です。一度センターへ戻ってください。", me:false },
   ],
+  team_f: [
+    { id:1, from:"小林", role:"driver", time:"08:44", text:"F班、本日も安全運転で参ります。", me:false },
+  ],
+  team_g: [
+    { id:1, from:"土井", role:"driver", time:"08:46", text:"G班、配車表確認しました。", me:false },
+  ],
+  team_h: [
+    { id:1, from:"熊谷", role:"driver", time:"08:48", text:"H班、本日は2名体制です。", me:false },
+  ],
+  team_i: [
+    { id:1, from:"田中センター長", role:"manager", time:"07:50", text:"安全指導班チャンネルです。指導記録・注意喚起事項を共有してください。", me:false },
+    { id:2, from:"安田", role:"driver", time:"07:52", text:"承知しました。本日の巡回指導は午後を予定しています。", me:false },
+  ],
   safety: [
     { id:1, from:"田中センター長", role:"manager", time:"07:55", text:"安全報告チャンネルです。ヒヤリハット・危険箇所を共有してください。", me:false },
     { id:2, from:"小笠原", role:"driver", time:"10:20", text:"【報告】国道○号線の工事区間、路面が荒れています。速度注意です。", me:false },
-    { id:3, from:"祝原", role:"driver", time:"10:24", text:"情報ありがとうございます！班員に共有します。", me:false },
+    { id:3, from:"中尾", role:"driver", time:"10:24", text:"情報ありがとうございます！班員に共有します。", me:false },
   ],
 };
 let chatMessages = channelMessages.general;
@@ -2730,7 +2785,7 @@ let reports = [
     anonymous: false,
     submitterUid: 'u02',
     submitterName: '佐藤',
-    submitterTeam: 'エリアB班',
+    submitterTeam: 'E班（佐藤班）',
     createdAt: '2026-06-19 14:32',
     status: 'pending',
     statusNote: '',
@@ -2746,7 +2801,7 @@ let reports = [
     anonymous: false,
     submitterUid: 'u06',
     submitterName: '渡辺',
-    submitterTeam: 'エリアC班',
+    submitterTeam: 'G班（土井班）',
     createdAt: '2026-06-18 17:10',
     status: 'in_progress',
     statusNote: '整備工場へ手配済み。6/22入庫予定。代車は C-15 を使用ください。',
@@ -2853,9 +2908,7 @@ const getUser  = id => users.find(u => u.id === id);
 function getTargetDrivers(targetId) {
   const drivers = users.filter(u => u.role === 'driver');
   if (targetId === 'all') return drivers;
-  if (targetId === 'areaB') return drivers.filter(u => u.team === 'エリアB班');
-  if (targetId === 'areaC') return drivers.filter(u => u.team === 'エリアC班');
-  return drivers;
+  return drivers.filter(u => u.team === targetId);
 }
 
 // 到達率を計算
@@ -2911,18 +2964,21 @@ function openProfileEdit() {
         <div style="text-align:center;padding:16px 0 20px">
           <div class="user-menu-av" style="width:60px;height:60px;font-size:24px;margin:0 auto 10px">${me.name[0]}</div>
           <div style="font-weight:700;font-size:17px;color:var(--navy)">${escHtml(me.name)}</div>
-          <div style="font-size:12px;color:var(--text-muted);margin-top:3px">${escHtml(me.team)} · ${escHtml(me.driverNo)}</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:3px">${escHtml(getTeamLabel(me.team))} · ${escHtml(me.driverNo)}</div>
         </div>
         <div class="divider"></div>
 
         <div class="form-group">
           <label class="form-label">
-            チーム名
-            <span style="font-size:10px;font-weight:500;color:var(--text-muted);margin-left:6px">（任意・変更可）</span>
+            所属班
+            <span style="font-size:10px;font-weight:500;color:var(--text-muted);margin-left:6px">（変更不可）</span>
           </label>
-          <input type="text" id="prof-team" class="input-field"
-            placeholder="例: 小笠原班"
-            value="${escHtml(me.team)}">
+          <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 14px;font-size:14px;color:var(--text-sub);font-weight:600;display:flex;align-items:center;gap:8px">
+            <span style="font-size:16px">🚚</span>
+            <span>${escHtml(getTeamLabel(me.team))}</span>
+            <span style="margin-left:auto;font-size:11px;background:var(--border);color:var(--text-muted);border-radius:4px;padding:2px 6px">固定</span>
+          </div>
+          <p style="font-size:11px;color:var(--text-muted);margin-top:4px">所属班の変更は管理者にお問い合わせください</p>
         </div>
 
         <div class="form-group">
@@ -2985,8 +3041,6 @@ function checkProfPw() {
 }
 
 function saveProfile() {
-  const me = users.find(u => u.id === st.currentUid) || users[0];
-  const teamVal = document.getElementById('prof-team')?.value.trim();
   const pwNew   = document.getElementById('prof-pw-new')?.value || '';
   const pwCur   = document.getElementById('prof-pw-cur')?.value || '';
   const pwConf  = document.getElementById('prof-pw-confirm')?.value || '';
@@ -2998,19 +3052,8 @@ function saveProfile() {
     if (pwNew !== pwConf) { showToast('⚠️ パスワードが一致しません'); return; }
   }
 
-  // チーム名更新（任意）
-  if (teamVal && me) {
-    me.team = teamVal;
-    // ユーザーメニューのmeta更新
-    const metaEl = document.getElementById('um-meta');
-    if (metaEl) metaEl.textContent = `${me.team} · ${me.driverNo}`;
-  }
-
   closeModal();
-  const msgs = [];
-  if (teamVal) msgs.push('チーム名を更新しました');
-  if (pwNew)   msgs.push('パスワードを変更しました（モック）');
-  showToast('✓ ' + (msgs.length ? msgs.join('・') : 'プロフィールを保存しました'));
+  showToast(pwNew ? '✓ パスワードを変更しました（モック）' : '✓ プロフィールを保存しました');
 }
 
 function openNotifSettings() {
@@ -3692,7 +3735,7 @@ function showAnn(id) {
                 <div class="msg-av" style="background:linear-gradient(135deg,#0D3D9E,#3F8CEF)">${u.name[0]}</div>
                 <div class="user-info">
                   <div class="user-name">${escHtml(u.name)}${reaction?`<span class="reaction-pill">${reaction}</span>`:''}</div>
-                  <div class="user-meta">${escHtml(u.team)}</div>
+                  <div class="user-meta">${escHtml(getTeamLabel(u.team))}</div>
                 </div>
                 <span class="user-status read">既読</span>
               </div>`;
@@ -3707,7 +3750,7 @@ function showAnn(id) {
                 <div class="msg-av" style="background:#C0C8D4">${u.name[0]}</div>
                 <div class="user-info">
                   <div class="user-name">${escHtml(u.name)}</div>
-                  <div class="user-meta">${escHtml(u.team)}</div>
+                  <div class="user-meta">${escHtml(getTeamLabel(u.team))}</div>
                 </div>
                 <span class="user-status unread">未読</span>
               </div>
@@ -4341,7 +4384,7 @@ function showReachPublic(id) {
                 <div class="msg-av" style="background:linear-gradient(135deg,#0D3D9E,#3F8CEF)">${u.name[0]}</div>
                 <div class="user-info">
                   <div class="user-name">${escHtml(u.name)}${reaction?`<span class="reaction-pill">${reaction}</span>`:''}</div>
-                  <div class="user-meta">${escHtml(u.team)} · ${escHtml(u.driverNo)}</div>
+                  <div class="user-meta">${escHtml(getTeamLabel(u.team))} · ${escHtml(u.driverNo)}</div>
                 </div>
                 <span class="user-status read">既読</span>
               </div>`;
@@ -4359,7 +4402,7 @@ function showReachPublic(id) {
                 <div class="msg-av" style="background:#C0C8D4">${u.name[0]}</div>
                 <div class="user-info">
                   <div class="user-name">${escHtml(u.name)}</div>
-                  <div class="user-meta">${escHtml(u.team)} · ${escHtml(u.driverNo)}</div>
+                  <div class="user-meta">${escHtml(getTeamLabel(u.team))} · ${escHtml(u.driverNo)}</div>
                 </div>
                 <span class="user-status unread">未読</span>
               </div>
@@ -4484,7 +4527,7 @@ function showReach(id) {
             <div class="msg-av" style="background:#5B8FE0">${u.name[0]}</div>
             <div class="user-info">
               <div class="user-name">${u.name}</div>
-              <div class="user-meta">${u.team} · ${u.driverNo}</div>
+              <div class="user-meta">${getTeamLabel(u.team)} · ${u.driverNo}</div>
             </div>
             <span class="user-status unread">未読</span>
           </div>
@@ -4504,7 +4547,7 @@ function showReach(id) {
             <div class="msg-av" style="background:linear-gradient(135deg,#0D3D9E,#3F8CEF)">${u.name[0]}</div>
             <div class="user-info">
               <div class="user-name">${u.name}${reaction?`<span class="reaction-pill">${reaction}</span>`:''}</div>
-              <div class="user-meta">${u.team} · ${u.driverNo}</div>
+              <div class="user-meta">${getTeamLabel(u.team)} · ${u.driverNo}</div>
             </div>
             <span class="user-status read">既読</span>
           </div>`;
@@ -4695,12 +4738,11 @@ function sendMsg() {
   renderChat();
 }
 
-function switchCh(id, name, btn) {
-  document.querySelectorAll('#channel-chips .chip').forEach(c=>c.classList.remove('active'));
-  btn.classList.add('active');
+function switchCh(id, name) {
   document.getElementById('ch-title').textContent = name;
   currentChannel = id;
   chatMessages = channelMessages[id] || [];
+  renderChannelChips();     // 固定チップ・班選択ボタンのactive状態を更新
   renderChat();
   // 管理者モードならメンバー数・統計を更新
   if (st.role === 'manager') {
@@ -4711,19 +4753,29 @@ function switchCh(id, name, btn) {
 
 /* ===== チャット：管理者機能 ===== */
 
-// チャンネル名 → 対象チームのマッピング
-const channelTeamMap = {
-  general:   'all',
-  ogasawara: 'ogasawara',
-  sato:      'sato',
-  iwahara:   'iwahara',
-  safety:    'all',
-};
-
+// チャンネルIDは 'general'/'safety'（全員向け）または teams[].id（'team_a'〜'team_i'）
+// そのままteamIdとして扱えるため、固定マッピング辞書は不要
 function getChannelMembers(channelId) {
-  const teamId = channelTeamMap[channelId] || 'all';
-  if (teamId === 'all') return users.filter(u => u.role === 'driver');
+  const teamId = (channelId === 'general' || channelId === 'safety') ? 'all' : channelId;
   return getTargetDrivers(teamId);
+}
+
+// チャンネルチップを teams マスターから動的生成
+// 全チャンネル（固定2つ＋9班）をボタンとして並べ、.wrap で折り返し表示する
+// （横スクロールにせず、どの班も1タップで直接切替できるようにする）
+// 班長交代・班の増減があっても teams 配列を更新するだけでチップに反映される
+function renderChannelChips() {
+  const host = document.getElementById('channel-chips');
+  if (!host) return;
+  const channelList = [
+    { id:'general', label:'全体連絡' },
+    ...teams.filter(t => t.id !== 'all').map(t => ({ id:t.id, label:t.displayName })),
+    { id:'safety', label:'安全報告' },
+  ];
+  host.innerHTML = channelList.map(c => `
+    <button class="chip${c.id === currentChannel ? ' active' : ''}"
+      onclick="switchCh('${c.id}','${escHtml(c.label)}')"># ${escHtml(c.label)}</button>
+  `).join('');
 }
 
 // メッセージ数等の統計（管理者ヘッダー上部のカード）
@@ -4784,7 +4836,7 @@ function showChannelMembers() {
         <div class="msg-av" style="background:#5B8FE0;width:36px;height:36px">${u.name[0]}</div>
         <div style="flex:1;min-width:0">
           <div style="font-weight:700;font-size:14px;color:var(--navy)">${escHtml(u.name)}</div>
-          <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${escHtml(u.team)} · ${escHtml(u.driverNo)}</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${escHtml(getTeamLabel(u.team))} · ${escHtml(u.driverNo)}</div>
         </div>
         ${isActive
           ? '<span style="font-size:10px;background:rgba(31,157,85,.12);color:var(--safe);padding:3px 8px;border-radius:999px;font-weight:700">● 発言あり</span>'
@@ -4936,7 +4988,7 @@ function showMan(id) {
                 <div class="msg-av" style="background:#5B8FE0">${u.name[0]}</div>
                 <div class="user-info">
                   <div class="user-name">${u.name}</div>
-                  <div class="user-meta">${u.team} · ${u.driverNo}</div>
+                  <div class="user-meta">${getTeamLabel(u.team)} · ${u.driverNo}</div>
                 </div>
                 <span class="user-status unread">未読</span>
               </div>
@@ -4954,7 +5006,7 @@ function showMan(id) {
                 <div class="msg-av" style="background:linear-gradient(135deg,#0D3D9E,#3F8CEF)">${u.name[0]}</div>
                 <div class="user-info">
                   <div class="user-name">${u.name}</div>
-                  <div class="user-meta">${u.team} · ${u.driverNo}</div>
+                  <div class="user-meta">${getTeamLabel(u.team)} · ${u.driverNo}</div>
                 </div>
                 <span class="user-status read">既読</span>
               </div>
@@ -5405,7 +5457,7 @@ function renderKytManagerDashboard() {
             <div class="msg-av" style="background:#5B8FE0;width:30px;height:30px;font-size:12px">${u.name[0]}</div>
             <div class="user-info">
               <div class="user-name">${escHtml(u.name)}</div>
-              <div class="user-meta">${escHtml(u.team)} · ${escHtml(u.driverNo)}</div>
+              <div class="user-meta">${escHtml(getTeamLabel(u.team))} · ${escHtml(u.driverNo)}</div>
             </div>
             <span class="user-status ${u.pct===100?'read':u.done>0?'':'unread'}" style="margin-left:auto">${u.done}/${totalScenarios}完了</span>
           </div>
@@ -5737,7 +5789,8 @@ function submitFb() {
   const me = (typeof users !== 'undefined') ? users.find(u => u.id === st.currentUid) : null;
   const isAnon = st.fbAnonymous;
   const senderName = me ? me.name : '自分';
-  const senderTeam = me ? me.team : '小笠原班';
+  // 報告書上の所属表示は「投稿時点」のスナップショットとして固定保存する（班長交代後も過去記録は変えない）
+  const senderTeam = me ? getTeam(me.team).displayName : '—';
 
   // 受付番号を発行 & レポート登録（Firestore: addDoc(collection(db, 'reports'), …) に置換可能）
   const receiptNum = generateReceiptNumber();
@@ -6183,7 +6236,7 @@ function renderGameManagerView() {
           <div class="msg-av" style="background:linear-gradient(135deg,#0D3D9E,#3F8CEF)">${u.name[0]}</div>
           <div class="user-info">
             <div class="user-name">${escHtml(u.name)}</div>
-            <div class="user-meta">${escHtml(u.team)}</div>
+            <div class="user-meta">${escHtml(getTeamLabel(u.team))}</div>
           </div>
           <span class="user-status read">🔔 登録済</span>
         </div>`).join('');
@@ -6197,7 +6250,7 @@ function renderGameManagerView() {
           <div class="msg-av" style="background:#9AA7BA">${u.name[0]}</div>
           <div class="user-info">
             <div class="user-name">${escHtml(u.name)}</div>
-            <div class="user-meta">${escHtml(u.team)}</div>
+            <div class="user-meta">${escHtml(getTeamLabel(u.team))}</div>
           </div>
           <span class="user-status unread">○ 未登録</span>
         </div>`).join('');
@@ -6519,6 +6572,7 @@ fbAuth.onAuthStateChanged(async (user) => {
 
 /* ===== 初期化 ===== */
 renderAnn();
+renderChannelChips();
 renderChat();
 renderMan();
 renderKYTList();
