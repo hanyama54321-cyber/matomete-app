@@ -62,8 +62,14 @@ service cloud.firestore {
       // 一覧・個別取得ともteamId('all'|team_a〜team_i)で可視性を判定
       allow get, list: if isSignedIn()
         && (resource.data.teamId == 'all' || resource.data.teamId == myUserDoc().team || isAdmin());
-      // チャンネル自体の作成・更新(lastMessage併記含む)・削除はadminのみ
-      allow create, update, delete: if isAdmin();
+      // チャンネル自体の作成・削除、teamId/name等の変更はadminのみ。
+      // ただし lastMessage フィールドのみは、そのチャンネルが見える認証ユーザーなら
+      // 誰でも更新可(メッセージ送信時に併記更新するため)
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin()
+        || (isSignedIn()
+            && (resource.data.teamId == 'all' || resource.data.teamId == myUserDoc().team)
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastMessage']));
 
       match /messages/{messageId} {
         // 閲覧は親チャンネルの可視性ルールに従う

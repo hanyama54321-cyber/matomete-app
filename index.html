@@ -2716,60 +2716,14 @@ const kytCompletions = {
   u08: { 6:{score:4, total:5, completedAt:'2026-06-18'} },
 };
 
-/* ===== チャットメッセージ（モック） =====
+/* ===== チャットメッセージ（Firestore接続） =====
    Firestore スキーマ: channels/{channelId}/messages/{messageId}
+     senderUid / senderName / senderRole / text / createdAt / deleted / deletedBy / deletedAt
    channelId は 'general' | 'safety' | teams[].id（'team_a'〜'team_i'）
-   モック配列はそのまま onSnapshot / addDoc に置換可能 */
-const channelMessages = {
-  general: [
-    { id:1, from:"田中センター長", role:"manager", time:"09:05", text:"おはようございます。本日の追加便が発生しています。各班リーダーは確認をお願いします。", me:false },
-    { id:2, from:"小笠原", role:"driver", time:"09:08", text:"D班、了解しました。", me:false },
-    { id:3, from:"中尾", role:"driver", time:"09:09", text:"A班も確認しました！", me:false },
-    { id:4, from:"田中センター長", role:"manager", time:"09:10", text:"ありがとうございます。詳細はシステムに登録済みです。よろしくお願いします！", me:false },
-  ],
-  team_a: [
-    { id:1, from:"中尾", role:"driver", time:"08:20", text:"A班、本日の配車確認しました。", me:false },
-    { id:2, from:"田中センター長", role:"manager", time:"08:22", text:"よろしくお願いします。", me:false },
-  ],
-  team_b: [
-    { id:1, from:"中村", role:"driver", time:"08:25", text:"B班、出発準備完了です。", me:false },
-  ],
-  team_c: [
-    { id:1, from:"鈴木", role:"driver", time:"08:28", text:"C班、本日は3名体制です。", me:false },
-  ],
-  team_d: [
-    { id:1, from:"小笠原", role:"driver", time:"08:30", text:"D班、本日の配車確認しました。ルートA・Bを担当します。", me:false },
-    { id:2, from:"田中センター長", role:"manager", time:"08:32", text:"ありがとうございます。午後に追加2便あります。よろしくお願いします。", me:false },
-    { id:3, from:"小笠原", role:"driver", time:"08:35", text:"承知しました！", me:false },
-  ],
-  team_e: [
-    { id:1, from:"佐藤", role:"driver", time:"08:38", text:"E班です。本日は3名体制で出発します。配車表確認しました。", me:false },
-    { id:2, from:"田中センター長", role:"manager", time:"08:40", text:"ありがとうございます。エリア南側の追加納品もお願いします。", me:false },
-    { id:3, from:"佐藤", role:"driver", time:"08:42", text:"了解しました。山本さんと2手に分かれて対応します。", me:false },
-    { id:4, from:"山本", role:"driver", time:"09:15", text:"ルートC、納品完了しました。次のポイントへ移動します。", me:false },
-    { id:5, from:"田中センター長", role:"manager", time:"09:17", text:"お疲れさまです。午後の追加便は14時以降です。一度センターへ戻ってください。", me:false },
-  ],
-  team_f: [
-    { id:1, from:"小林", role:"driver", time:"08:44", text:"F班、本日も安全運転で参ります。", me:false },
-  ],
-  team_g: [
-    { id:1, from:"土井", role:"driver", time:"08:46", text:"G班、配車表確認しました。", me:false },
-  ],
-  team_h: [
-    { id:1, from:"熊谷", role:"driver", time:"08:48", text:"H班、本日は2名体制です。", me:false },
-  ],
-  team_i: [
-    { id:1, from:"田中センター長", role:"manager", time:"07:50", text:"安全指導班チャンネルです。指導記録・注意喚起事項を共有してください。", me:false },
-    { id:2, from:"安田", role:"driver", time:"07:52", text:"承知しました。本日の巡回指導は午後を予定しています。", me:false },
-  ],
-  safety: [
-    { id:1, from:"田中センター長", role:"manager", time:"07:55", text:"安全報告チャンネルです。ヒヤリハット・危険箇所を共有してください。", me:false },
-    { id:2, from:"小笠原", role:"driver", time:"10:20", text:"【報告】国道○号線の工事区間、路面が荒れています。速度注意です。", me:false },
-    { id:3, from:"中尾", role:"driver", time:"10:24", text:"情報ありがとうございます！班員に共有します。", me:false },
-  ],
-};
-let chatMessages = channelMessages.general;
+   chatMessages は現在開いているチャンネルの onSnapshot 結果をそのまま保持する */
+let chatMessages = [];               // 現在のチャンネルのメッセージ(Firestoreからリアルタイム反映)
 let currentChannel = 'general';
+let currentChannelUnsub = null;      // onSnapshot の unsubscribe 関数(チャンネル切替時に必ず呼ぶ)
 
 /* ===== 報告（フィードバック）データ =====
    Firestore スキーマ:
@@ -4701,18 +4655,30 @@ function showToast(msg) {
   t._timer = setTimeout(() => { t.style.opacity = '0'; }, 2200);
 }
 
-/* ===== チャット ===== */
+/* ===== チャット（Firestore接続） ===== */
+
+// メッセージのcreatedAt(Firestore Timestamp)を HH:mm 表示に変換
+// サーバー確定前(pending write)はnullで返ってくるため、その間は空文字を返す
+function fmtMsgTime(ts) {
+  if (!ts || typeof ts.toDate !== 'function') return '';
+  const d = ts.toDate();
+  return d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0');
+}
+
 function renderChat() {
   const isManager = st.role === 'manager';
+  const myUid = fbUser ? fbUser.code : null;
   document.getElementById('chat-msgs').innerHTML = chatMessages.map(m => {
-    const canDelete = isManager && !m.me && !m.deleted;
+    const isMe = m.senderUid === myUid;
+    const isAdminMsg = m.senderRole === 'admin';
+    const canDelete = isManager && !isMe && !m.deleted;
     return `
-    <div class="msg-row${m.me?' me':''}" data-mid="${m.id}">
-      ${!m.me ? `<div class="msg-av" style="background:${m.role==='manager'?'linear-gradient(135deg,#0D3D9E,#3F8CEF)':'#5B8FE0'}">${m.from[0]}</div>` : ''}
+    <div class="msg-row${isMe?' me':''}" data-mid="${m.id}">
+      ${!isMe ? `<div class="msg-av" style="background:${isAdminMsg?'linear-gradient(135deg,#0D3D9E,#3F8CEF)':'#5B8FE0'}">${(m.senderName||'?')[0]}</div>` : ''}
       <div class="msg-wrap">
-        ${!m.me ? `<div class="msg-name">${m.from}${m.role==='manager'?'<span style="font-size:9px;background:rgba(13,61,158,.15);color:var(--navy);padding:1px 5px;border-radius:4px;margin-left:5px;letter-spacing:.04em;font-weight:700">管理者</span>':''}</div>` : ''}
-        <div class="msg-bubble${m.me?' me':''}${m.deleted?' deleted':''}">${m.deleted ? '<em style="opacity:.6">このメッセージは管理者により削除されました</em>' : m.text}</div>
-        <div class="msg-time${m.me?' me':''}">${m.time}${canDelete ? ` <button onclick="modDeleteMsg(${m.id})" style="background:none;border:none;color:var(--danger);font-size:11px;font-weight:700;cursor:pointer;padding:0 4px;margin-left:4px">🗑 削除</button>` : ''}</div>
+        ${!isMe ? `<div class="msg-name">${escHtml(m.senderName)}${isAdminMsg?'<span style="font-size:9px;background:rgba(13,61,158,.15);color:var(--navy);padding:1px 5px;border-radius:4px;margin-left:5px;letter-spacing:.04em;font-weight:700">管理者</span>':''}</div>` : ''}
+        <div class="msg-bubble${isMe?' me':''}${m.deleted?' deleted':''}">${m.deleted ? '<em style="opacity:.6">このメッセージは管理者により削除されました</em>' : escHtml(m.text)}</div>
+        <div class="msg-time${isMe?' me':''}">${fmtMsgTime(m.createdAt)}${canDelete ? ` <button onclick="modDeleteMsg('${m.id}')" style="background:none;border:none;color:var(--danger);font-size:11px;font-weight:700;cursor:pointer;padding:0 4px;margin-left:4px">🗑 削除</button>` : ''}</div>
       </div>
     </div>`;
   }).join('');
@@ -4724,26 +4690,70 @@ function scrollChatBot() {
   if (c) c.scrollTop = c.scrollHeight;
 }
 
-function sendMsg() {
+async function sendMsg() {
   const inp = document.getElementById('chat-input');
   const text = inp.value.trim();
-  if (!text) return;
-  const now = new Date();
-  const t = now.getHours().toString().padStart(2,'0')+':'+now.getMinutes().toString().padStart(2,'0');
-  const msg = { id:Date.now(), from:'自分', role:'driver', time:t, text, me:true };
-  if (!channelMessages[currentChannel]) channelMessages[currentChannel] = [];
-  channelMessages[currentChannel].push(msg);
-  chatMessages = channelMessages[currentChannel];
-  inp.value = '';
-  renderChat();
+  if (!text || !fbUser) return;
+  const btn = document.querySelector('.chat-input-bar .btn-primary');
+  if (btn) btn.disabled = true;
+  try {
+    await fbDb.collection('channels').doc(currentChannel).collection('messages').add({
+      senderUid: fbUser.code,
+      senderName: fbUser.name,
+      senderRole: fbUser.role,
+      text,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      deleted: false,
+      deletedBy: null,
+      deletedAt: null,
+    });
+    // lastMessageを併記更新（このチャンネルが見えるユーザーなら誰でも更新可）
+    await fbDb.collection('channels').doc(currentChannel).update({
+      lastMessage: {
+        text,
+        senderName: fbUser.name,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      },
+    });
+    inp.value = '';
+  } catch (e) {
+    console.error('メッセージ送信エラー:', e);
+    showToast('⚠️ 送信に失敗しました（' + (e.code || e.message) + '）');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+// チャンネル切替のたびに必ず前のリスナーをdetachしてから新しいリスナーを張る
+// （detach漏れは多重リスナー・二重表示・不要な読み取り課金の原因になるため）
+function attachChannelListener(id) {
+  if (currentChannelUnsub) {
+    currentChannelUnsub();
+    currentChannelUnsub = null;
+  }
+  currentChannelUnsub = fbDb.collection('channels').doc(id).collection('messages')
+    .orderBy('createdAt', 'asc')
+    .limit(100)
+    .onSnapshot(snap => {
+      chatMessages = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      renderChat();
+      if (st.role === 'manager') {
+        updateChatMgrStats();
+        updateChannelMembersCount();
+      }
+    }, err => {
+      console.error('チャットリスナーエラー:', err);
+      showToast('⚠️ メッセージの取得に失敗しました（' + (err.code || err.message) + '）');
+    });
 }
 
 function switchCh(id, name) {
   document.getElementById('ch-title').textContent = name;
   currentChannel = id;
-  chatMessages = channelMessages[id] || [];
+  chatMessages = [];
+  renderChat();             // 前チャンネルの表示を即座にクリア
+  attachChannelListener(id);
   renderChannelChips();     // 固定チップ・班選択ボタンのactive状態を更新
-  renderChat();
   // 管理者モードならメンバー数・統計を更新
   if (st.role === 'manager') {
     updateChatMgrStats();
@@ -4784,13 +4794,12 @@ function updateChatMgrStats() {
   if (!host) return;
   if (st.role !== 'manager') { host.classList.add('hidden'); return; }
 
-  const msgs = channelMessages[currentChannel] || [];
-  const activeMsgs = msgs.filter(m => !m.deleted);
+  const activeMsgs = chatMessages.filter(m => !m.deleted);
   const members = getChannelMembers(currentChannel);
-  const activeUserNames = new Set(activeMsgs.map(m => m.from));
-  const activeMembers = members.filter(u => activeUserNames.has(u.name) || u.name === '自分').length;
+  const activeUserNames = new Set(activeMsgs.map(m => m.senderName));
+  const activeMembers = members.filter(u => activeUserNames.has(u.name)).length;
   const lastMsg = activeMsgs[activeMsgs.length - 1];
-  const lastTime = lastMsg ? lastMsg.time : '—';
+  const lastTime = lastMsg ? (fmtMsgTime(lastMsg.createdAt) || '送信中...') : '—';
 
   host.classList.remove('hidden');
   host.innerHTML = `
@@ -4825,8 +4834,8 @@ function showChannelMembers() {
   document.getElementById('ch-members-title').textContent = `# ${channelName} のメンバー（${members.length}人）`;
 
   // チャンネル内のメッセージ送信者名一覧（アクティブ判定）
-  const msgs = (channelMessages[currentChannel] || []).filter(m => !m.deleted);
-  const activeNames = new Set(msgs.map(m => m.from));
+  const msgs = chatMessages.filter(m => !m.deleted);
+  const activeNames = new Set(msgs.map(m => m.senderName));
 
   const list = document.getElementById('ch-members-list');
   list.innerHTML = members.map(u => {
@@ -4850,17 +4859,23 @@ function closeChannelMembers() {
   document.getElementById('ch-members-modal').classList.add('hidden');
 }
 
-// 管理者によるメッセージ削除（モデレーション）
-function modDeleteMsg(id) {
-  if (st.role !== 'manager') return;
+// 管理者によるメッセージ削除（モデレーション）: deleted/deletedBy/deletedAtのみのソフト削除
+// （ルール上、物理削除(delete)は全ロール禁止・adminのこの3フィールド更新のみ許可）
+async function modDeleteMsg(id) {
+  if (st.role !== 'manager' || !fbUser) return;
   if (!confirm('このメッセージを管理者削除します。よろしいですか？\n（チャンネル全員に削除済みと表示されます）')) return;
-  const msgs = channelMessages[currentChannel] || [];
-  const m = msgs.find(x => x.id === id);
-  if (!m) return;
-  m.deleted = true;
-  m.text = '';
-  renderChat();
-  showToast('🗑 メッセージを削除しました');
+  try {
+    await fbDb.collection('channels').doc(currentChannel).collection('messages').doc(id).update({
+      deleted: true,
+      deletedBy: fbUser.code,
+      deletedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    // onSnapshotリスナーが自動で再描画するため、ここでのrenderChat()呼び出しは不要
+    showToast('🗑 メッセージを削除しました');
+  } catch (e) {
+    console.error('メッセージ削除エラー:', e);
+    showToast('⚠️ 削除に失敗しました（' + (e.code || e.message) + '）');
+  }
 }
 
 // チャットタブの管理者UI切替（setRoleから呼ばれる）
@@ -6341,6 +6356,12 @@ async function handleLogin(e) {
 
 function showLoginScreen() {
   fbUser = null;
+  // ログアウト時はチャットリスナーを必ずdetach(権限が失われた状態での購読継続を防ぐ)
+  if (currentChannelUnsub) {
+    currentChannelUnsub();
+    currentChannelUnsub = null;
+  }
+  chatMessages = [];
   document.getElementById('app').style.display = 'none';
   document.getElementById('login-screen').style.display = 'flex';
   document.getElementById('login-password').value = '';
@@ -6559,6 +6580,12 @@ fbAuth.onAuthStateChanged(async (user) => {
     setRole(fbUser.role === 'admin' ? 'manager' : 'driver');
 
     showAppScreen();
+
+    // ログイン成功時にチャットチャンネル(既定: general)のリスナーを開始
+    currentChannel = 'general';
+    document.getElementById('ch-title').textContent = '全体連絡';
+    attachChannelListener(currentChannel);
+    renderChannelChips();
 
     if (fbUser.passwordChanged === false) {
       openPasswordChangeModal();
