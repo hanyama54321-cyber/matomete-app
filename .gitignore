@@ -1,3 +1,10 @@
 # 管理者専用のローカル実行ツール。GitHub Pagesで公開されるべきではないため除外。
 # (createUser/削除等の特権操作を含むため、公開リポジトリに含めない運用)
 seed.html
+
+# ルールテスト用の依存関係・ログ
+node_modules/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+.firebase/

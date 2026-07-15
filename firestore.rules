@@ -38,8 +38,9 @@ service cloud.firestore {
       // 一覧取得はadminのみ(ユーザー管理画面用)
       allow list: if isAdmin();
       // 本人は passwordChanged フィールドのみ更新可(role等は変更不可)
-      // adminは全フィールド更新可(役割変更用)
-      allow update: if isAdmin()
+      // adminは全フィールド更新可(役割変更用)。ただし自分自身のroleは変更不可(自己降格防止)
+      allow update: if (isAdmin()
+            && !(myCode() == code && request.resource.data.role != resource.data.role))
         || (myCode() == code
             && request.resource.data.diff(resource.data)
                .affectedKeys().hasOnly(['passwordChanged']));
@@ -95,6 +96,64 @@ service cloud.firestore {
         // 物理削除は全ロールで禁止
         allow delete: if false;
       }
+    }
+
+    // 報告(フィードバック)の受付番号カウンタ。単一ドキュメント counters/reports
+    match /counters/reports {
+      allow get: if isSignedIn();
+      // 初回作成: countが1のドキュメントのみ
+      allow create: if isSignedIn() && request.resource.data.count == 1;
+      // 以降の採番: countフィールドのみを直前値+1に更新
+      allow update: if isSignedIn()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['count'])
+        && request.resource.data.count == resource.data.count + 1;
+    }
+
+    match /reports/{reportId} {
+      // get: 本人 / admin / public / 匿名報告はID既知なら誰でも取得可
+      //      (listには含めないため、他人の匿名報告IDを知らない限り閲覧不可。
+      //       端末ローカル(localStorage)で自分の匿名投稿IDを追跡する設計に対応)
+      allow get: if isSignedIn()
+        && (resource.data.submitterUid == myCode()
+            || isAdmin()
+            || resource.data.visibility == 'public'
+            || resource.data.anonymous == true);
+
+      // list: 自分の投稿(記名) / admin / 公開済みのみ列挙可
+      allow list: if isSignedIn()
+        && (resource.data.submitterUid == myCode()
+            || isAdmin()
+            || resource.data.visibility == 'public');
+
+      // 作成: 送信者情報のなりすまし防止(messagesと同様のパターン)。
+      // 匿名時はsubmitter系フィールドをすべてnullに固定。新規は必ずopen/private系の初期値。
+      allow create: if isSignedIn()
+        && request.resource.data.status == 'open'
+        && request.resource.data.visibility in ['private', 'pending_public']
+        && request.resource.data.assigneeUid == null
+        && request.resource.data.assigneeName == null
+        && request.resource.data.internalNote == ''
+        && request.resource.data.replyToReporter == ''
+        && request.resource.data.statusUpdatedAt == null
+        && (request.resource.data.anonymous == true
+            ? (request.resource.data.submitterUid == null
+               && request.resource.data.submitterName == null
+               && request.resource.data.submitterTeam == null)
+            : (request.resource.data.submitterUid == myCode()
+               && request.resource.data.submitterName == myUserDoc().name));
+
+      // update: adminは全フィールド可。投稿者本人はvisibilityのprivate⇔pending_publicのみ
+      //         (public化された後は本人操作不可＝取り下げ不可、admin操作のみ)
+      // 匿名報告(submitterUid==null)は、そもそもresource.data.submitterUid==myCode()が
+      // 成立しないため、投稿者本人であってもvisibilityを後から変更できない(仕様として許容)。
+      allow update: if isAdmin()
+        || (isSignedIn()
+            && resource.data.submitterUid == myCode()
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['visibility'])
+            && resource.data.visibility != 'public'
+            && request.resource.data.visibility in ['private', 'pending_public']);
+
+      allow delete: if isAdmin();
     }
 
     // 上記以外のコレクションはデフォルト拒否(明示不要だが漏れ防止)

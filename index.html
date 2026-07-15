@@ -670,9 +670,17 @@ header {
   border-radius: 999px;
   letter-spacing: .02em;
 }
-.status-pending     { background: rgba(231,76,60,.12); color: var(--danger); }
+.status-open        { background: rgba(231,76,60,.12); color: var(--danger); }
 .status-in_progress { background: rgba(255,179,0,.18); color: #B36F00; }
 .status-resolved    { background: rgba(31,157,85,.12); color: var(--safe); }
+.report-visibility-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(63,140,239,.14);
+  color: var(--primary);
+}
 .report-category-tag {
   font-size: 11px;
   background: var(--surface2);
@@ -737,7 +745,7 @@ header {
   transition: all .15s;
   font-family: inherit;
 }
-.report-status-btn.active.status-pending {
+.report-status-btn.active.status-open {
   background: rgba(231,76,60,.12); border-color: var(--danger); color: var(--danger);
 }
 .report-status-btn.active.status-in_progress {
@@ -2152,6 +2160,13 @@ header {
     <!-- フィードバックタブ -->
     <div id="tab-feedback" class="tab-panel">
 
+      <!-- ▼ ドライバー：サブナビ ▼ -->
+      <div class="chip-row hide-scroll" id="fb-driver-nav">
+        <button class="chip active" data-view="post"   onclick="switchFbDriverView('post',this)">✏️ 投稿</button>
+        <button class="chip"        data-view="mine"   onclick="switchFbDriverView('mine',this)">🗂️ 自分の報告</button>
+        <button class="chip"        data-view="public" onclick="switchFbDriverView('public',this)">🌐 みんなの報告</button>
+      </div>
+
       <!-- ▼ ドライバー：送信フォーム ▼ -->
       <div id="fb-form">
         <div class="section-title"><span class="title-bar"></span>フィードバック送信</div>
@@ -2179,6 +2194,25 @@ header {
             <span>このフィードバックは <b>匿名</b> で送信されます。送信者の特定はできません。</span>
           </div>
 
+          <!-- 共有トグル(他のユーザーにも公開する) -->
+          <label id="fb-share-row" class="toggle-row" for="fb-share-toggle">
+            <span class="t-icon">🌐</span>
+            <span class="t-text">
+              <span class="t-title">他のユーザーにも共有する</span>
+              <span class="t-desc">「みんなの報告」に公開されます（管理者の承認後に反映）</span>
+            </span>
+            <span class="switch">
+              <input type="checkbox" id="fb-share-toggle" onchange="toggleFbShare(this.checked)">
+              <span class="slider"></span>
+            </span>
+          </label>
+
+          <!-- 匿名時：共有設定は送信後変更不可の注記 -->
+          <div id="fb-share-anon-note" class="anon-preview hidden">
+            <span class="anon-icon">ℹ️</span>
+            <span>匿名投稿は、共有設定を送信後に変更できません。</span>
+          </div>
+
           <div style="margin-bottom:14px">
             <label style="font-size:13px;font-weight:700;color:var(--navy);display:block;margin-bottom:8px">カテゴリ</label>
             <div id="fb-cats" style="display:flex;flex-wrap:wrap;gap:8px"></div>
@@ -2197,6 +2231,19 @@ header {
       <!-- ▼ ドライバー：送信完了（拡充版） ▼ -->
       <div id="fb-success" class="hidden fb-success"></div>
 
+      <!-- ▼ ドライバー：自分の報告 ▼ -->
+      <div id="fb-mine" class="hidden">
+        <div class="section-title"><span class="title-bar"></span>自分の報告</div>
+        <div id="fb-mine-list"></div>
+        <div id="fb-mine-detail" class="hidden"></div>
+      </div>
+
+      <!-- ▼ ドライバー：みんなの報告 ▼ -->
+      <div id="fb-public" class="hidden">
+        <div class="section-title"><span class="title-bar"></span>みんなの報告</div>
+        <div id="fb-public-list"></div>
+      </div>
+
       <!-- ▼ 管理者：報告管理ビュー ▼ -->
       <div id="fb-manager" class="hidden">
         <div class="section-title"><span class="title-bar"></span>受信した報告 — 管理</div>
@@ -2206,23 +2253,16 @@ header {
           <span>管理者モード — 報告の確認・対応・出力ができます</span>
         </div>
 
-        <!-- メール通知設定カード -->
-        <div class="card report-config-card">
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
-            <span style="font-size:22px">✉️</span>
+        <!-- 通知オプトイン -->
+        <div class="card" style="margin-bottom:12px">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+            <span style="font-size:22px">🔔</span>
             <div style="flex:1">
-              <div style="font-weight:700;font-size:14px;color:var(--navy)">メール通知</div>
-              <div style="font-size:11px;color:var(--text-sub)">新規報告時の自動送信</div>
+              <div style="font-weight:700;font-size:14px;color:var(--navy)">新着報告の通知</div>
+              <div style="font-size:11px;color:var(--text-sub)" id="fb-notif-status">未登録 — このアプリを開いている間のみ通知します</div>
             </div>
-            <span id="config-mail-badge" class="config-badge config-on">ON</span>
           </div>
-          <div style="font-size:12px;color:var(--text-sub);margin-bottom:6px">通知先メールアドレス</div>
-          <div class="report-mail-list" id="report-mail-list"></div>
-          <div style="margin-top:12px">
-            <div style="font-size:12px;color:var(--text-sub);margin-bottom:4px">通知タイミング</div>
-            <div id="config-mail-timing" style="font-size:13px;color:var(--navy);font-weight:700">⚡ 即時通知</div>
-          </div>
-          <p class="config-note">※ 設定は Firestore <code>config/reports</code> に保管。Cloud Functions が新規ドキュメント作成をトリガに自動送信します。</p>
+          <button id="fb-notif-btn" class="btn btn-ghost" style="width:100%;font-size:13px" onclick="enableReportNotifications()">🔔 新着報告の通知を受け取る</button>
         </div>
 
         <!-- スプレッドシート連携カード -->
@@ -2241,9 +2281,10 @@ header {
         <!-- ステータスフィルタ -->
         <div class="chip-row hide-scroll" id="report-filters">
           <button class="chip active" data-status="all" onclick="filterReports('all',this)">すべて <span id="rep-count-all" class="chip-badge"></span></button>
-          <button class="chip" data-status="pending" onclick="filterReports('pending',this)">🔴 未対応 <span id="rep-count-pending" class="chip-badge"></span></button>
+          <button class="chip" data-status="open" onclick="filterReports('open',this)">🔴 未対応 <span id="rep-count-open" class="chip-badge"></span></button>
           <button class="chip" data-status="in_progress" onclick="filterReports('in_progress',this)">🟡 対応中 <span id="rep-count-in_progress" class="chip-badge"></span></button>
           <button class="chip" data-status="resolved" onclick="filterReports('resolved',this)">🟢 対応済 <span id="rep-count-resolved" class="chip-badge"></span></button>
+          <button class="chip" data-status="pending_public" onclick="filterReports('pending_public',this)">🌐 公開承認待ち <span id="rep-count-pending_public" class="chip-badge"></span></button>
         </div>
 
         <div id="report-list"></div>
@@ -2727,79 +2768,41 @@ let currentChannelUnsub = null;      // onSnapshot の unsubscribe 関数(チャ
 
 /* ===== 報告（フィードバック）データ =====
    Firestore スキーマ:
-     - reports/{docId}       …個別の報告
-     - config/reports        …通知設定・連携設定（管理者が Firestore で固定設定）
-   モック配列はそのまま Firestore SDK の onSnapshot / addDoc / updateDoc に置換可能 */
-let reports = [
-  {
-    id: 'rep_001',
-    displayId: '#2026-0139',
-    category: '安全に関する報告',
-    body: '国道○号線・新川橋手前の路面に大きな段差ができています。雨天時は特に分かりにくく、タイヤを取られそうになった場面がありました。班内で注意喚起していますが、管理部にも共有しておきます。',
-    anonymous: false,
-    submitterUid: 'u02',
-    submitterName: '佐藤',
-    submitterTeam: 'E班（佐藤班）',
-    createdAt: '2026-06-19 14:32',
-    status: 'pending',
-    statusNote: '',
-    statusUpdatedAt: null,
-    statusUpdatedBy: null,
-    mailNotifiedAt: '2026-06-19 14:33',
-  },
-  {
-    id: 'rep_002',
-    displayId: '#2026-0140',
-    category: '設備・車両不具合',
-    body: '社用車C-07のエアコン冷風が弱くなってきています。夏場本格化前に整備をお願いしたいです。',
-    anonymous: false,
-    submitterUid: 'u06',
-    submitterName: '渡辺',
-    submitterTeam: 'G班（土井班）',
-    createdAt: '2026-06-18 17:10',
-    status: 'in_progress',
-    statusNote: '整備工場へ手配済み。6/22入庫予定。代車は C-15 を使用ください。',
-    statusUpdatedAt: '2026-06-19 09:15',
-    statusUpdatedBy: 'mgr',
-    mailNotifiedAt: '2026-06-18 17:11',
-  },
-  {
-    id: 'rep_003',
-    displayId: '#2026-0141',
-    category: '業務改善提案',
-    body: '朝礼で読み上げる連絡事項を、本アプリの「お知らせ」とも連動できないでしょうか。聞き逃しの防止になりますし、休務日のメンバーにも確実に届くと思います。',
-    anonymous: true,
-    submitterUid: null,
-    submitterName: null,
-    submitterTeam: null,
-    createdAt: '2026-06-17 08:45',
-    status: 'resolved',
-    statusNote: 'ご提案ありがとうございました。朝礼連絡を「お知らせ」タブに必読投稿として連動する運用を 6/20 より開始しました。',
-    statusUpdatedAt: '2026-06-18 14:00',
-    statusUpdatedBy: 'mgr',
-    mailNotifiedAt: '2026-06-17 08:46',
-  },
-];
-
-// メール通知・スプレッドシート連携設定（Firestore: config/reports）
-// 管理者が Firestore コンソール上で直接編集する想定（アプリ内では閲覧のみ）
-const reportConfig = {
-  emailEnabled: true,
-  emailRecipients: [
-    'tanaka.center@example.co.jp',
-    'safety-admin@example.co.jp',
-  ],
-  emailTiming: 'immediate',                   // 'immediate' | 'daily_digest'
-  sheetSyncEnabled: true,
-  sheetUrl: 'https://docs.google.com/spreadsheets/d/(連携予定)',
-  lastSyncAt: '2026-06-20 06:00',
-};
+     - reports/{docId}        …個別の報告(下記フィールド定義参照)
+     - counters/reports       …受付番号(#YYYY-NNNN)採番用の共有カウンタ(count)
+   reports フィールド:
+     category, body, anonymous, submitterUid/Name/Team(匿名時null),
+     createdAt(serverTimestamp), status('open'|'in_progress'|'resolved'),
+     assigneeUid/Name(管理者UI専用), internalNote(管理者間メモ、非公開),
+     replyToReporter(投稿者向け回答), visibility('private'|'pending_public'|'public'),
+     statusUpdatedAt
+   reports は管理者ログイン時に attachReportsAdminListener() で全件onSnapshotし、
+   ここでのローカル配列はその読み取り専用ミラー(表示専用、直接pushはしない)。
+   一般ユーザーは自分の投稿(mine)・公開一覧(public)を別listenerで購読する。 */
+let reports = [];                    // Firestoreミラー(管理者ビュー用)
+let reportsAdminUnsub = null;        // 管理者用reportsリスナーのunsubscribe
+let myReportsUnsub = null;           // 自分の報告(記名分)リスナーのunsubscribe
+let publicReportsUnsub = null;       // みんなの報告リスナーのunsubscribe
+let myAnonReports = [];              // localStorage追跡の匿名報告(get済みキャッシュ)
+let reportsAdminInitialLoadDone = false; // 初回スナップショット判定(通知の誤発火防止)
 
 const reportStatusMeta = {
-  pending:     { icon: '🔴', label: '未対応',  color: 'var(--danger)' },
+  open:        { icon: '🔴', label: '未対応',  color: 'var(--danger)' },
   in_progress: { icon: '🟡', label: '対応中',  color: '#B36F00' },
   resolved:    { icon: '🟢', label: '対応済',  color: 'var(--safe)' },
 };
+
+const reportVisibilityMeta = {
+  private:        { label: '非公開', icon: '🔒' },
+  pending_public: { label: '公開希望中', icon: '🌐' },
+  public:         { label: '公開中', icon: '🌐' },
+};
+
+const REPLY_CANNED_PHRASES = [
+  '周知資料に反映しました',
+  '班会議で共有します',
+  'カリキュラムに反映しました',
+];
 
 const linksData = [
   { category:"道路・交通情報", categoryEn:"ROAD & TRAFFIC", icon:"🚦", color:"var(--danger)",
@@ -2839,7 +2842,10 @@ const st = {
   readSectionOpen: false,  // 既読セクションの開閉
   fbCat: '',
   fbAnonymous: false,           // 匿名で送信（ユーザー毎回選択）
+  fbShareRequested: false,      // 他のユーザーにも共有する（visibility: pending_public）
   fbLastReceiptNum: null,       // 直近の受付番号
+  fbDriverView: 'post',         // ドライバー側サブビュー: 'post' | 'mine' | 'public'
+  fbMineDetailId: null,         // 自分の報告：詳細表示中のID
   reportFilter: 'all',          // 報告管理：ステータスフィルタ
   reportDetailId: null,         // 報告管理：詳細表示中のID
   kytScene: null,
@@ -5734,7 +5740,7 @@ function exportKytCsv() {
 
 
 /* ===== フィードバック ===== */
-const fbCats = ['業務改善提案','安全に関する報告','顧客対応の共有','設備・車両不具合','その他'];
+const fbCats = ['業務改善提案','安全に関する報告','設備・車両不具合','その他'];
 
 function renderFbCats() {
   document.getElementById('fb-cats').innerHTML = fbCats.map(c=>`
@@ -5766,6 +5772,7 @@ function toggleFbAnon(checked) {
   const desc    = document.getElementById('fb-anon-desc');
   const preview = document.getElementById('fb-anon-preview');
   const note    = document.getElementById('fb-note');
+  const shareNote = document.getElementById('fb-share-anon-note');
 
   if (checked) {
     row.classList.add('active');
@@ -5782,53 +5789,67 @@ function toggleFbAnon(checked) {
     preview.classList.add('hidden');
     note.textContent = 'スイッチをONにすると匿名で送信できます';
   }
+  // 匿名投稿は共有設定(private⇔pending_public)を後から変更できないため注記のみ表示する
+  // (トグル自体は投稿前なので操作可能。制約は送信「後」に効く)
+  if (shareNote) shareNote.classList.toggle('hidden', !checked);
   updateFbBtn();
 }
 
-// 受付番号生成（表示用：#YYYY-NNNN）
-function generateReceiptNumber() {
-  const y = new Date().getFullYear();
-  let maxNum = 141;
-  reports.forEach(r => {
-    const m = (r.displayId || '').match(/^#\d{4}-(\d+)$/);
-    if (m) maxNum = Math.max(maxNum, parseInt(m[1], 10));
-  });
-  return `#${y}-${String(maxNum + 1).padStart(4, '0')}`;
+// 共有トグル切替（他のユーザーにも公開する = visibility: pending_public）
+function toggleFbShare(checked) {
+  st.fbShareRequested = checked;
 }
 
-function submitFb() {
+async function submitFb() {
   const bodyText = document.getElementById('fb-body').value.trim();
-  if (!st.fbCat || !bodyText) return;
+  if (!st.fbCat || !bodyText || !fbUser) return;
 
-  // 送信者情報を準備
-  const me = (typeof users !== 'undefined') ? users.find(u => u.id === st.currentUid) : null;
   const isAnon = st.fbAnonymous;
-  const senderName = me ? me.name : '自分';
+  const senderName = fbUser.name;
   // 報告書上の所属表示は「投稿時点」のスナップショットとして固定保存する（班長交代後も過去記録は変えない）
-  const senderTeam = me ? getTeam(me.team).displayName : '—';
+  const senderTeam = getTeam(fbUser.team).displayName;
+  const visibility = st.fbShareRequested ? 'pending_public' : 'private';
 
-  // 受付番号を発行 & レポート登録（Firestore: addDoc(collection(db, 'reports'), …) に置換可能）
-  const receiptNum = generateReceiptNumber();
-  const now = new Date();
-  const ts  = now.toISOString().slice(0, 16).replace('T', ' ');
+  const btn = document.getElementById('fb-btn');
+  if (btn) btn.disabled = true;
 
-  const newReport = {
-    id: `rep_${Date.now()}`,
-    displayId: receiptNum,
-    category: st.fbCat,
-    body: bodyText,
-    anonymous: isAnon,
-    submitterUid:  isAnon ? null : (me ? me.id : null),
-    submitterName: isAnon ? null : senderName,
-    submitterTeam: isAnon ? null : senderTeam,
-    createdAt: ts,
-    status: 'pending',
-    statusNote: '',
-    statusUpdatedAt: null,
-    statusUpdatedBy: null,
-    mailNotifiedAt: reportConfig.emailEnabled ? ts : null,
-  };
-  reports.unshift(newReport);
+  const year = new Date().getFullYear();
+  const counterRef = fbDb.collection('counters').doc('reports');
+  const reportRef = fbDb.collection('reports').doc();
+  let receiptNum;
+
+  try {
+    await fbDb.runTransaction(async (tx) => {
+      const counterSnap = await tx.get(counterRef);
+      const nextNum = (counterSnap.exists ? counterSnap.data().count : 0) + 1;
+      receiptNum = `#${year}-${String(nextNum).padStart(4, '0')}`;
+      tx.set(counterRef, { count: nextNum });
+      tx.set(reportRef, {
+        displayId: receiptNum,
+        category: st.fbCat,
+        body: bodyText,
+        anonymous: isAnon,
+        submitterUid:  isAnon ? null : fbUser.code,
+        submitterName: isAnon ? null : senderName,
+        submitterTeam: isAnon ? null : senderTeam,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        status: 'open',
+        assigneeUid: null,
+        assigneeName: null,
+        internalNote: '',
+        replyToReporter: '',
+        visibility,
+        statusUpdatedAt: null,
+      });
+    });
+  } catch (e) {
+    console.error('報告送信エラー:', e);
+    showToast('⚠️ 送信に失敗しました（' + (e.code || e.message) + '）');
+    if (btn) btn.disabled = false;
+    return;
+  }
+
+  if (isAnon) saveAnonReportIdLocally(reportRef.id);
   st.fbLastReceiptNum = receiptNum;
 
   // 拡充された成功画面を構築
@@ -5852,7 +5873,7 @@ function submitFb() {
     <div class="fb-thanks-block">
       <p class="fb-thanks-line">${anonymityLine}</p>
       <p class="fb-thanks-line">
-        ご報告の内容は管理者へ即時に共有され、内容を確認のうえ、適切に対応してまいります。状況が動いた段階では、本アプリの「お知らせ」${isAnon ? '' : 'または個別のメッセージ'}にてご報告いたします。
+        ご報告の内容は管理者へ即時に共有され、内容を確認のうえ、適切に対応してまいります。状況が動いた段階では、本アプリの「自分の報告」${isAnon ? '' : 'または個別のメッセージ'}にてご確認いただけます。
       </p>
       <p class="fb-thanks-line">
         これからも、安全面・業務面でお気づきの点があれば、どうぞ遠慮なくお寄せください。皆さま一人ひとりの声が、より良い職場づくりにつながります。
@@ -5862,7 +5883,7 @@ function submitFb() {
     <div class="fb-next-steps">
       <div class="fb-next-title">NEXT STEPS — 次の流れ</div>
       <ul class="fb-next-list">
-        <li>管理者へメールで自動通知</li>
+        <li>管理者が内容を確認し対応します</li>
         <li>受付番号で進捗を管理</li>
         ${isAnon ? '<li>匿名性を保ったまま対応</li>' : '<li>必要に応じて個別にご連絡</li>'}
       </ul>
@@ -5873,20 +5894,246 @@ function submitFb() {
   `;
   document.getElementById('fb-form').classList.add('hidden');
   successCard.classList.remove('hidden');
+  if (btn) btn.disabled = false;
+}
+
+// 匿名投稿の自分の報告ID(localStorage)を追跡する。サーバー側に投稿者を紐付けるフィールドは
+// 一切持たないため、この端末のlocalStorageのみが「自分の匿名報告」を辿る手段になる。
+function getAnonReportIds() {
+  try {
+    return JSON.parse(localStorage.getItem('fbMyAnonReportIds') || '[]');
+  } catch (e) {
+    return [];
+  }
+}
+
+function saveAnonReportIdLocally(id) {
+  const ids = getAnonReportIds();
+  ids.unshift(id);
+  localStorage.setItem('fbMyAnonReportIds', JSON.stringify(ids.slice(0, 200)));
 }
 
 function resetFb() {
   st.fbCat = '';
   st.fbAnonymous = false;
+  st.fbShareRequested = false;
   document.getElementById('fb-body').value = '';
   const toggle = document.getElementById('fb-anon-toggle');
   if (toggle) toggle.checked = false;
+  const shareToggle = document.getElementById('fb-share-toggle');
+  if (shareToggle) shareToggle.checked = false;
   toggleFbAnon(false);
-  document.getElementById('fb-form').classList.remove('hidden');
   document.getElementById('fb-success').classList.add('hidden');
   document.getElementById('fb-success').innerHTML = '';
   renderFbCats();
   updateFbBtn();
+  switchFbDriverView('post', document.querySelector('#fb-driver-nav .chip[data-view="post"]'));
+}
+
+/* ===== ドライバー側：サブビュー切替（投稿 / 自分の報告 / みんなの報告） ===== */
+function switchFbDriverView(view, btn) {
+  st.fbDriverView = view;
+  document.querySelectorAll('#fb-driver-nav .chip').forEach(c => c.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+
+  const successVisible = !document.getElementById('fb-success').classList.contains('hidden');
+  document.getElementById('fb-form').classList.toggle('hidden', view !== 'post' || successVisible);
+  document.getElementById('fb-mine').classList.toggle('hidden', view !== 'mine');
+  document.getElementById('fb-public').classList.toggle('hidden', view !== 'public');
+
+  // 不要な購読は都度detachし、表示中のビューのリスナーのみ張る(読み取り課金対策)
+  if (myReportsUnsub) { myReportsUnsub(); myReportsUnsub = null; }
+  if (publicReportsUnsub) { publicReportsUnsub(); publicReportsUnsub = null; }
+  if (view === 'mine') attachMyReportsListener();
+  if (view === 'public') attachPublicReportsListener();
+}
+
+/* ===== ドライバー側：自分の報告 ===== */
+
+// 記名報告(submitterUid==自分)はクエリで取得、匿名報告はlocalStorageのID一覧から個別取得してマージ
+function attachMyReportsListener() {
+  if (!fbUser) return;
+  st.fbMineDetailId = null;
+  myReportsUnsub = fbDb.collection('reports')
+    .where('submitterUid', '==', fbUser.code)
+    .orderBy('createdAt', 'desc')
+    .onSnapshot(async (snap) => {
+      const named = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const anonIds = getAnonReportIds();
+      const anonDocs = await Promise.all(anonIds.map(async id => {
+        try {
+          const doc = await fbDb.collection('reports').doc(id).get();
+          return doc.exists ? { id: doc.id, ...doc.data() } : null;
+        } catch (e) {
+          return null;
+        }
+      }));
+      myAnonReports = anonDocs.filter(Boolean);
+      const merged = [...named, ...myAnonReports].sort((a, b) => {
+        const ta = a.createdAt && a.createdAt.toMillis ? a.createdAt.toMillis() : 0;
+        const tb = b.createdAt && b.createdAt.toMillis ? b.createdAt.toMillis() : 0;
+        return tb - ta;
+      });
+      reports = merged; // ドライバー側の一時ミラーとして流用(管理者ビューとは非同期に切替るため衝突しない)
+      if (st.fbMineDetailId) {
+        showMyReportDetail(st.fbMineDetailId);
+      } else {
+        renderMyReports();
+      }
+    }, err => {
+      console.error('自分の報告リスナーエラー:', err);
+      showToast('⚠️ 自分の報告の取得に失敗しました（' + (err.code || err.message) + '）');
+    });
+}
+
+function renderMyReports() {
+  const listEl = document.getElementById('fb-mine-list');
+  if (!listEl) return;
+  if (reports.length === 0) {
+    listEl.innerHTML = `
+      <div class="report-empty">
+        <div style="font-size:36px;margin-bottom:10px">📭</div>
+        まだ報告はありません
+      </div>`;
+    return;
+  }
+  listEl.innerHTML = reports.map(r => {
+    const meta = reportStatusMeta[r.status] || reportStatusMeta.open;
+    const visMeta = reportVisibilityMeta[r.visibility] || reportVisibilityMeta.private;
+    const visBadge = r.visibility !== 'private'
+      ? `<span class="report-visibility-badge">${visMeta.icon} ${visMeta.label}</span>`
+      : '';
+    return `
+      <div class="card report-card" onclick="showMyReportDetail('${r.id}')">
+        <div class="report-card-header">
+          <span class="report-status-badge status-${r.status}">${meta.icon} ${meta.label}</span>
+          <span class="report-category-tag">${escHtml(r.category)}</span>
+          ${visBadge}
+          <span class="report-id">${escHtml(r.displayId)}</span>
+        </div>
+        <div class="report-body-preview">${escHtml(r.body)}</div>
+        <div class="report-meta"><span>${fmtReportDate(r.createdAt)}</span></div>
+      </div>`;
+  }).join('');
+}
+
+function showMyReportDetail(id) {
+  const r = reports.find(x => x.id === id);
+  if (!r) return;
+  st.fbMineDetailId = id;
+  const meta = reportStatusMeta[r.status] || reportStatusMeta.open;
+  const visMeta = reportVisibilityMeta[r.visibility] || reportVisibilityMeta.private;
+
+  document.getElementById('fb-mine-list').classList.add('hidden');
+  const detail = document.getElementById('fb-mine-detail');
+  detail.classList.remove('hidden');
+
+  let shareSection;
+  if (r.anonymous) {
+    shareSection = `
+      <div class="anon-preview" style="margin-top:10px">
+        <span class="anon-icon">ℹ️</span>
+        <span>匿名報告は投稿時の共有設定から変更できません。</span>
+      </div>`;
+  } else if (r.visibility === 'public') {
+    shareSection = `<div style="font-size:12px;color:var(--text-muted);margin-top:10px">🌐 この報告は公開済みです</div>`;
+  } else {
+    const toPending = r.visibility === 'private';
+    shareSection = `
+      <button class="btn btn-ghost" style="width:100%;font-size:13px;margin-top:10px" onclick="toggleMyReportShare('${r.id}', ${toPending})">
+        ${toPending ? '🌐 他のユーザーにも共有する' : '取り下げる（非公開に戻す）'}
+      </button>`;
+  }
+
+  const replySection = r.replyToReporter
+    ? `<div style="font-size:13px;color:var(--text-sub);margin-bottom:6px;margin-top:14px">管理者からの回答</div>
+       <div style="font-size:14px;color:var(--text);line-height:1.8;white-space:pre-wrap;background:var(--surface2);border-radius:8px;padding:12px 14px">${escHtml(r.replyToReporter)}</div>`
+    : '';
+
+  detail.innerHTML = `
+    <button class="btn btn-ghost" style="margin-bottom:14px;font-size:12px" onclick="closeMyReportDetail()">← 一覧に戻る</button>
+    <div class="report-detail-card">
+      <div class="report-card-header" style="margin-bottom:12px">
+        <span class="report-status-badge status-${r.status}">${meta.icon} ${meta.label}</span>
+        <span class="report-category-tag">${escHtml(r.category)}</span>
+        <span class="report-id">${escHtml(r.displayId)}</span>
+      </div>
+      <div style="font-size:13px;color:var(--text-sub);margin-bottom:6px">送信日時</div>
+      <div style="font-size:14px;color:var(--navy);font-weight:600;margin-bottom:14px">${fmtReportDate(r.createdAt)}</div>
+      <div style="font-size:13px;color:var(--text-sub);margin-bottom:6px">本文</div>
+      <div style="font-size:14px;color:var(--text);line-height:1.8;white-space:pre-wrap;background:var(--surface2);border-radius:8px;padding:12px 14px">${escHtml(r.body)}</div>
+      ${replySection}
+      ${shareSection}
+    </div>
+  `;
+}
+
+function closeMyReportDetail() {
+  st.fbMineDetailId = null;
+  document.getElementById('fb-mine-detail').classList.add('hidden');
+  document.getElementById('fb-mine-detail').innerHTML = '';
+  document.getElementById('fb-mine-list').classList.remove('hidden');
+}
+
+async function toggleMyReportShare(id, toPending) {
+  try {
+    await fbDb.collection('reports').doc(id).update({
+      visibility: toPending ? 'pending_public' : 'private',
+    });
+    showToast(toPending ? '🌐 共有をリクエストしました（管理者の承認待ち）' : '🔒 共有を取り下げました');
+  } catch (e) {
+    console.error('共有設定の更新エラー:', e);
+    showToast('⚠️ 更新に失敗しました（' + (e.code || e.message) + '）');
+  }
+}
+
+/* ===== ドライバー側：みんなの報告（公開一覧） ===== */
+function attachPublicReportsListener() {
+  publicReportsUnsub = fbDb.collection('reports')
+    .where('visibility', '==', 'public')
+    .orderBy('createdAt', 'desc')
+    .onSnapshot(snap => {
+      const publicReports = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      renderPublicReports(publicReports);
+    }, err => {
+      console.error('みんなの報告リスナーエラー:', err);
+      showToast('⚠️ みんなの報告の取得に失敗しました（' + (err.code || err.message) + '）');
+    });
+}
+
+function renderPublicReports(publicReports) {
+  const listEl = document.getElementById('fb-public-list');
+  if (!listEl) return;
+  if (publicReports.length === 0) {
+    listEl.innerHTML = `
+      <div class="report-empty">
+        <div style="font-size:36px;margin-bottom:10px">🌐</div>
+        まだ公開されている報告はありません
+      </div>`;
+    return;
+  }
+  listEl.innerHTML = publicReports.map(r => {
+    const submitter = r.anonymous
+      ? `<span class="report-meta-anon">👤 匿名</span>`
+      : `<span>${escHtml(r.submitterName || '—')}（${escHtml(r.submitterTeam || '—')}）</span>`;
+    const replyBlock = r.replyToReporter
+      ? `<div style="font-size:13px;color:var(--text-sub);margin-top:10px;margin-bottom:4px">回答</div>
+         <div style="font-size:13px;color:var(--text);line-height:1.7;white-space:pre-wrap;background:var(--surface2);border-radius:8px;padding:10px 12px">${escHtml(r.replyToReporter)}</div>`
+      : '';
+    return `
+      <div class="card report-card">
+        <div class="report-card-header">
+          <span class="report-category-tag">${escHtml(r.category)}</span>
+        </div>
+        <div class="report-body-preview" style="-webkit-line-clamp:unset">${escHtml(r.body)}</div>
+        <div class="report-meta">
+          ${submitter}
+          <span>•</span>
+          <span>${fmtReportDate(r.createdAt)}</span>
+        </div>
+        ${replyBlock}
+      </div>`;
+  }).join('');
 }
 
 /* ===== 報告管理（管理者向け） ===== */
@@ -5894,64 +6141,130 @@ function resetFb() {
 // ドライバー／管理者ビュー切替
 function renderFbTab() {
   const isManager = st.role === 'manager';
+  const navEl     = document.getElementById('fb-driver-nav');
   const formEl    = document.getElementById('fb-form');
   const successEl = document.getElementById('fb-success');
+  const mineEl    = document.getElementById('fb-mine');
+  const publicEl  = document.getElementById('fb-public');
   const mgrEl     = document.getElementById('fb-manager');
   if (!formEl || !mgrEl) return;
 
   if (isManager) {
+    navEl.classList.add('hidden');
     formEl.classList.add('hidden');
     successEl.classList.add('hidden');
+    mineEl.classList.add('hidden');
+    publicEl.classList.add('hidden');
+    if (myReportsUnsub) { myReportsUnsub(); myReportsUnsub = null; }
+    if (publicReportsUnsub) { publicReportsUnsub(); publicReportsUnsub = null; }
     mgrEl.classList.remove('hidden');
     renderReportManager();
   } else {
     mgrEl.classList.add('hidden');
-    const successVisible = !successEl.classList.contains('hidden');
-    if (!successVisible) {
-      formEl.classList.remove('hidden');
+    navEl.classList.remove('hidden');
+    const activeBtn = document.querySelector(`#fb-driver-nav .chip[data-view="${st.fbDriverView}"]`);
+    switchFbDriverView(st.fbDriverView, activeBtn);
+  }
+}
+
+// 管理者ログイン時に開始し、以後ログアウトまで張りっぱなしにするreports全件リスナー。
+// フィード側は購読状況に関わらずここが唯一の情報源(reportsミラー)になる。
+function attachReportsAdminListener() {
+  if (reportsAdminUnsub) { reportsAdminUnsub(); reportsAdminUnsub = null; }
+  reportsAdminInitialLoadDone = false;
+  reportsAdminUnsub = fbDb.collection('reports')
+    .orderBy('createdAt', 'desc')
+    .onSnapshot(snap => {
+      reports = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+      if (reportsAdminInitialLoadDone) {
+        snap.docChanges().forEach(change => {
+          if (change.type === 'added') notifyNewReport(change.doc.data());
+        });
+      } else {
+        reportsAdminInitialLoadDone = true;
+      }
+
+      if (st.role === 'manager' && !document.getElementById('fb-manager').classList.contains('hidden')) {
+        renderReportManager();
+      }
+    }, err => {
+      console.error('報告リスナーエラー:', err);
+      showToast('⚠️ 報告の取得に失敗しました（' + (err.code || err.message) + '）');
+    });
+}
+
+/* ===== 新着報告のPWA通知（アプリ起動中のみ。FCM/バックグラウンド配信は次フェーズ） ===== */
+function updateReportNotifUI() {
+  const statusEl = document.getElementById('fb-notif-status');
+  const btnEl = document.getElementById('fb-notif-btn');
+  if (!statusEl || !btnEl) return;
+  const supported = 'Notification' in window;
+  const optedIn = localStorage.getItem('fbNotifOptIn') === 'true';
+  if (!supported) {
+    statusEl.textContent = 'このブラウザは通知に対応していません';
+    btnEl.classList.add('hidden');
+  } else if (Notification.permission === 'granted' && optedIn) {
+    statusEl.textContent = '✓ 通知ON — アプリを開いている間、新着報告をお知らせします';
+    btnEl.classList.add('hidden');
+  } else if (Notification.permission === 'denied') {
+    statusEl.textContent = 'ブラウザの通知が拒否されています（ブラウザ設定から変更してください）';
+    btnEl.classList.add('hidden');
+  } else {
+    statusEl.textContent = '未登録 — このアプリを開いている間のみ通知します';
+    btnEl.classList.remove('hidden');
+  }
+}
+
+async function enableReportNotifications() {
+  if (!('Notification' in window)) return;
+  try {
+    const perm = await Notification.requestPermission();
+    if (perm === 'granted') {
+      localStorage.setItem('fbNotifOptIn', 'true');
+      showToast('🔔 新着報告の通知を有効にしました');
     }
+  } catch (e) {
+    console.error('通知許可エラー:', e);
+  }
+  updateReportNotifUI();
+}
+
+function notifyNewReport(r) {
+  if (!('Notification' in window)) return;
+  if (Notification.permission !== 'granted') return;
+  if (localStorage.getItem('fbNotifOptIn') !== 'true') return;
+  try {
+    new Notification('📩 新着報告', {
+      body: `[${r.category}] ${(r.body || '').slice(0, 60)}`,
+    });
+  } catch (e) {
+    console.error('通知表示エラー:', e);
   }
 }
 
 function renderReportManager() {
-  renderReportConfig();
+  updateReportNotifUI();
   renderReportFilters();
-  renderReportList();
   if (st.reportDetailId) {
     showReport(st.reportDetailId);
   } else {
     document.getElementById('report-detail').classList.add('hidden');
     document.getElementById('report-list').classList.remove('hidden');
     document.getElementById('report-filters').classList.remove('hidden');
+    renderReportList();
   }
-}
-
-function renderReportConfig() {
-  const badge = document.getElementById('config-mail-badge');
-  if (reportConfig.emailEnabled) {
-    badge.className = 'config-badge config-on';
-    badge.textContent = 'ON';
-  } else {
-    badge.className = 'config-badge config-off';
-    badge.textContent = 'OFF';
-  }
-  document.getElementById('report-mail-list').innerHTML =
-    reportConfig.emailRecipients.length === 0
-      ? '<div class="report-mail-item" style="color:var(--text-muted)">（未設定）</div>'
-      : reportConfig.emailRecipients.map(m => `<div class="report-mail-item">📧 ${escHtml(m)}</div>`).join('');
-  const timingLabel = reportConfig.emailTiming === 'immediate' ? '⚡ 即時通知' : '🕒 1日1回まとめ';
-  document.getElementById('config-mail-timing').textContent = timingLabel;
-  document.getElementById('report-sheet-sync').textContent = '最終同期: ' + (reportConfig.lastSyncAt || '—');
 }
 
 function renderReportFilters() {
   const counts = {
     all: reports.length,
-    pending: reports.filter(r => r.status === 'pending').length,
+    open: reports.filter(r => r.status === 'open').length,
     in_progress: reports.filter(r => r.status === 'in_progress').length,
     resolved: reports.filter(r => r.status === 'resolved').length,
+    pending_public: reports.filter(r => r.visibility === 'pending_public').length,
   };
-  ['all','pending','in_progress','resolved'].forEach(k => {
+  Object.keys(counts).forEach(k => {
     const el = document.getElementById('rep-count-' + k);
     if (el) el.textContent = counts[k] > 0 ? counts[k] : '';
   });
@@ -5964,9 +6277,15 @@ function filterReports(status, btn) {
   renderReportList();
 }
 
+const STATUS_RANK = { open: 0, in_progress: 1, resolved: 2 };
+
 function renderReportList() {
   const filter = st.reportFilter;
-  const items = (filter === 'all') ? reports : reports.filter(r => r.status === filter);
+  let items;
+  if (filter === 'all') items = reports;
+  else if (filter === 'pending_public') items = reports.filter(r => r.visibility === 'pending_public');
+  else items = reports.filter(r => r.status === filter);
+
   const listEl = document.getElementById('report-list');
   if (!listEl) return;
 
@@ -5979,21 +6298,29 @@ function renderReportList() {
     return;
   }
 
-  const sorted = [...items].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+  const ts = r => (r.createdAt && r.createdAt.toMillis) ? r.createdAt.toMillis() : 0;
+  const sorted = [...items].sort((a, b) => {
+    if (filter === 'all') {
+      const rankDiff = (STATUS_RANK[a.status] ?? 9) - (STATUS_RANK[b.status] ?? 9);
+      if (rankDiff !== 0) return rankDiff;
+    }
+    return ts(b) - ts(a);
+  });
 
   listEl.innerHTML = sorted.map(r => {
-    const meta = reportStatusMeta[r.status];
+    const meta = reportStatusMeta[r.status] || reportStatusMeta.open;
     const submitter = r.anonymous
       ? `<span class="report-meta-anon">👤 匿名</span>`
       : `<span>${escHtml(r.submitterName || '—')}（${escHtml(r.submitterTeam || '—')}）</span>`;
-    const mailBadge = r.mailNotifiedAt
-      ? `<span class="report-mail-notified">✉️ 通知済</span>`
+    const pendingPublicBadge = r.visibility === 'pending_public'
+      ? `<span class="report-visibility-badge">🌐 公開承認待ち</span>`
       : '';
     return `
       <div class="card report-card" onclick="showReport('${r.id}')">
         <div class="report-card-header">
           <span class="report-status-badge status-${r.status}">${meta.icon} ${meta.label}</span>
           <span class="report-category-tag">${escHtml(r.category)}</span>
+          ${pendingPublicBadge}
           <span class="report-id">${escHtml(r.displayId)}</span>
         </div>
         <div class="report-body-preview">${escHtml(r.body)}</div>
@@ -6001,7 +6328,6 @@ function renderReportList() {
           ${submitter}
           <span>•</span>
           <span>${fmtReportDate(r.createdAt)}</span>
-          ${mailBadge ? '<span>•</span>' + mailBadge : ''}
         </div>
       </div>`;
   }).join('');
@@ -6011,16 +6337,29 @@ function showReport(id) {
   const r = reports.find(x => x.id === id);
   if (!r) return;
   st.reportDetailId = id;
-  const meta = reportStatusMeta[r.status];
+  const meta = reportStatusMeta[r.status] || reportStatusMeta.open;
   const submitter = r.anonymous
     ? `<span class="report-meta-anon">👤 匿名送信</span>`
     : `${escHtml(r.submitterName)}（${escHtml(r.submitterTeam)}）`;
   const statusChange = r.statusUpdatedAt
     ? `<div style="font-size:11px;color:var(--text-muted);margin-top:6px">最終更新: ${fmtReportDate(r.statusUpdatedAt)}</div>`
     : '';
-  const mailRow = r.mailNotifiedAt
-    ? `<div style="font-size:12px;color:var(--safe);margin-top:8px">✉️ ${fmtReportDate(r.mailNotifiedAt)} にメール通知済み</div>`
-    : `<div style="font-size:12px;color:var(--text-muted);margin-top:8px">✉️ メール通知未送信</div>`;
+
+  const assigneeSection = r.assigneeUid
+    ? `<div style="font-size:13px;color:var(--navy);font-weight:600">担当: ${escHtml(r.assigneeName)}</div>`
+    : `<button class="btn btn-ghost" style="font-size:13px" onclick="selfAssignReport('${r.id}')">🙋 対応する</button>`;
+
+  const visMeta = reportVisibilityMeta[r.visibility] || reportVisibilityMeta.private;
+  const visibilitySection = r.visibility === 'pending_public'
+    ? `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px">
+         <span class="report-visibility-badge">${visMeta.icon} ${visMeta.label}</span>
+         <button class="btn btn-primary" style="font-size:12px;padding:8px 12px" onclick="approvePublic('${r.id}')">✅ 公開する</button>
+       </div>`
+    : `<div style="margin-top:10px"><span class="report-visibility-badge">${visMeta.icon} ${visMeta.label}</span></div>`;
+
+  const cannedBtns = REPLY_CANNED_PHRASES.map(p =>
+    `<button class="chip" style="font-size:11px" onclick="insertCannedReply('${escHtml(p).replace(/'/g,"\\'")}')">${escHtml(p)}</button>`
+  ).join('');
 
   document.getElementById('report-list').classList.add('hidden');
   document.getElementById('report-filters').classList.add('hidden');
@@ -6042,13 +6381,18 @@ function showReport(id) {
       <div style="font-size:14px;color:var(--navy);font-weight:600;margin-bottom:14px">${fmtReportDate(r.createdAt)}</div>
       <div style="font-size:13px;color:var(--text-sub);margin-bottom:6px">本文</div>
       <div style="font-size:14px;color:var(--text);line-height:1.8;white-space:pre-wrap;background:var(--surface2);border-radius:8px;padding:12px 14px">${escHtml(r.body)}</div>
-      ${mailRow}
+      ${visibilitySection}
+    </div>
+
+    <div class="report-detail-card">
+      <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:10px">担当者</div>
+      ${assigneeSection}
     </div>
 
     <div class="report-detail-card">
       <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:10px">ステータス変更</div>
       <div class="report-status-selector">
-        <button class="report-status-btn status-pending ${r.status==='pending'?'active':''}" onclick="setReportStatus('${r.id}','pending')">🔴 未対応</button>
+        <button class="report-status-btn status-open ${r.status==='open'?'active':''}" onclick="setReportStatus('${r.id}','open')">🔴 未対応</button>
         <button class="report-status-btn status-in_progress ${r.status==='in_progress'?'active':''}" onclick="setReportStatus('${r.id}','in_progress')">🟡 対応中</button>
         <button class="report-status-btn status-resolved ${r.status==='resolved'?'active':''}" onclick="setReportStatus('${r.id}','resolved')">🟢 対応済</button>
       </div>
@@ -6056,11 +6400,20 @@ function showReport(id) {
     </div>
 
     <div class="report-detail-card">
-      <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:10px">対応メモ</div>
+      <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:10px">投稿者への回答</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">${cannedBtns}</div>
+      <textarea id="report-reply-input" class="input-field" rows="4"
+        placeholder="投稿者に表示される回答を入力できます（任意）..."
+        style="resize:vertical;line-height:1.7">${escHtml(r.replyToReporter || '')}</textarea>
+      <button class="btn btn-primary" style="width:100%;margin-top:10px" onclick="saveReply('${r.id}')">💾 回答を保存</button>
+    </div>
+
+    <div class="report-detail-card">
+      <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:10px">内部メモ（管理者のみ・投稿者には非公開）</div>
       <textarea id="report-note-input" class="input-field" rows="4"
-        placeholder="対応内容や進捗をメモできます..."
-        style="resize:vertical;line-height:1.7">${escHtml(r.statusNote || '')}</textarea>
-      <button class="btn btn-primary" style="width:100%;margin-top:10px" onclick="saveReportNote('${r.id}')">💾 メモを保存</button>
+        placeholder="管理者間の内部メモ..."
+        style="resize:vertical;line-height:1.7">${escHtml(r.internalNote || '')}</textarea>
+      <button class="btn btn-primary" style="width:100%;margin-top:10px" onclick="saveInternalNote('${r.id}')">💾 メモを保存</button>
     </div>
 
     <button class="btn btn-ghost" style="width:100%;color:var(--danger);border-color:rgba(231,76,60,.25);margin-top:6px;font-size:13px" onclick="confirmDeleteReport('${r.id}')">🗑️ この報告を削除</button>
@@ -6077,45 +6430,105 @@ function closeReport() {
   renderReportFilters();
 }
 
-function setReportStatus(id, status) {
+async function selfAssignReport(id) {
   const r = reports.find(x => x.id === id);
-  if (!r) return;
-  r.status = status;
-  r.statusUpdatedAt = new Date().toISOString().slice(0, 16).replace('T', ' ');
-  r.statusUpdatedBy = st.currentUid;
-  // 対応後もメール通知（即時通知設定の場合）
-  if (reportConfig.emailEnabled && reportConfig.emailTiming === 'immediate') {
-    r.mailNotifiedAt = r.statusUpdatedAt;
+  if (!r || !fbUser) return;
+  try {
+    const patch = {
+      assigneeUid: fbUser.code,
+      assigneeName: fbUser.name,
+      statusUpdatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    };
+    if (r.status === 'open') patch.status = 'in_progress';
+    await fbDb.collection('reports').doc(id).update(patch);
+    showToast('🙋 担当者に設定しました');
+  } catch (e) {
+    console.error('担当者設定エラー:', e);
+    showToast('⚠️ 更新に失敗しました（' + (e.code || e.message) + '）');
   }
-  showReport(id);
-  setTimeout(() => showToast('✓ ステータスを更新しました（メール通知済）'), 50);
 }
 
-function saveReportNote(id) {
+async function setReportStatus(id, status) {
   const r = reports.find(x => x.id === id);
   if (!r) return;
-  const note = document.getElementById('report-note-input').value.trim();
-  r.statusNote = note;
-  r.statusUpdatedAt = new Date().toISOString().slice(0, 16).replace('T', ' ');
-  r.statusUpdatedBy = st.currentUid;
-  // 対応メモ保存時もメール通知（設定ON時）
-  if (reportConfig.emailEnabled && reportConfig.emailTiming === 'immediate') {
-    r.mailNotifiedAt = r.statusUpdatedAt;
-    showToast('💾 対応メモを保存しました（メール通知済）');
-  } else {
-    showToast('💾 対応メモを保存しました');
+  if (status === 'resolved') {
+    const replyInput = document.getElementById('report-reply-input');
+    const replyVal = replyInput ? replyInput.value.trim() : (r.replyToReporter || '');
+    if (!replyVal) {
+      const proceed = confirm('回答を入力せずに対応済みにしますか？');
+      if (!proceed) {
+        if (replyInput) replyInput.focus();
+        return;
+      }
+    }
   }
-  // 保存後に詳細ビューを再描画して通知済バッジを反映
-  showReport(id);
+  try {
+    await fbDb.collection('reports').doc(id).update({
+      status,
+      statusUpdatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    showToast('✓ ステータスを更新しました');
+  } catch (e) {
+    console.error('ステータス更新エラー:', e);
+    showToast('⚠️ 更新に失敗しました（' + (e.code || e.message) + '）');
+  }
 }
 
-function confirmDeleteReport(id) {
+function insertCannedReply(text) {
+  const input = document.getElementById('report-reply-input');
+  if (input) input.value = text;
+}
+
+async function saveReply(id) {
+  const input = document.getElementById('report-reply-input');
+  if (!input) return;
+  const reply = input.value.trim();
+  try {
+    await fbDb.collection('reports').doc(id).update({
+      replyToReporter: reply,
+      statusUpdatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    showToast('💾 回答を保存しました');
+  } catch (e) {
+    console.error('回答保存エラー:', e);
+    showToast('⚠️ 保存に失敗しました（' + (e.code || e.message) + '）');
+  }
+}
+
+async function saveInternalNote(id) {
+  const input = document.getElementById('report-note-input');
+  if (!input) return;
+  const note = input.value.trim();
+  try {
+    await fbDb.collection('reports').doc(id).update({ internalNote: note });
+    showToast('💾 内部メモを保存しました');
+  } catch (e) {
+    console.error('内部メモ保存エラー:', e);
+    showToast('⚠️ 保存に失敗しました（' + (e.code || e.message) + '）');
+  }
+}
+
+async function approvePublic(id) {
+  if (!confirm('この報告を「みんなの報告」に公開します。よろしいですか？')) return;
+  try {
+    await fbDb.collection('reports').doc(id).update({ visibility: 'public' });
+    showToast('✅ 公開しました');
+  } catch (e) {
+    console.error('公開承認エラー:', e);
+    showToast('⚠️ 更新に失敗しました（' + (e.code || e.message) + '）');
+  }
+}
+
+async function confirmDeleteReport(id) {
   if (!confirm('この報告を削除します。よろしいですか？\n（削除後は元に戻せません）')) return;
-  const idx = reports.findIndex(x => x.id === id);
-  if (idx === -1) return;
-  reports.splice(idx, 1);
-  closeReport();
-  setTimeout(() => showToast('🗑️ 報告を削除しました'), 100);
+  try {
+    await fbDb.collection('reports').doc(id).delete();
+    closeReport();
+    showToast('🗑️ 報告を削除しました');
+  } catch (e) {
+    console.error('削除エラー:', e);
+    showToast('⚠️ 削除に失敗しました（' + (e.code || e.message) + '）');
+  }
 }
 
 // CSV 出力（スプレッドシート連携用）
@@ -6124,7 +6537,7 @@ function exportReportsCsv() {
     showToast('⚠️ 出力する報告がありません');
     return;
   }
-  const header = ['受付番号','カテゴリ','本文','送信者','チーム','匿名','送信日時','ステータス','対応メモ','最終更新','メール通知日時'];
+  const header = ['受付番号','カテゴリ','本文','送信者','チーム','匿名','送信日時','ステータス','担当者','公開状態','投稿者への回答','内部メモ','最終更新'];
   const rows = reports.map(r => [
     r.displayId,
     r.category,
@@ -6132,11 +6545,13 @@ function exportReportsCsv() {
     r.anonymous ? '—' : (r.submitterName || ''),
     r.anonymous ? '—' : (r.submitterTeam || ''),
     r.anonymous ? 'はい' : 'いいえ',
-    r.createdAt,
-    reportStatusMeta[r.status].label,
-    r.statusNote || '',
-    r.statusUpdatedAt || '',
-    r.mailNotifiedAt || '',
+    fmtReportDate(r.createdAt),
+    (reportStatusMeta[r.status] || reportStatusMeta.open).label,
+    r.assigneeName || '',
+    (reportVisibilityMeta[r.visibility] || reportVisibilityMeta.private).label,
+    r.replyToReporter || '',
+    r.internalNote || '',
+    fmtReportDate(r.statusUpdatedAt),
   ]);
 
   const lines = [];
@@ -6150,15 +6565,19 @@ function exportReportsCsv() {
   const csvBody = lines.join('\r\n');
   const ts = new Date().toISOString().slice(0, 10);
   downloadCsv(csvBody, `reports_${ts}.csv`);
-  reportConfig.lastSyncAt = new Date().toISOString().slice(0, 16).replace('T', ' ');
-  renderReportConfig();
+  document.getElementById('report-sheet-sync').textContent = '最終同期: ' + new Date().toISOString().slice(0, 16).replace('T', ' ');
   showToast('📄 CSV をダウンロードしました');
 }
 
-// 報告日時の表示
+// 報告日時の表示（Firestore Timestamp / 文字列の両方に対応）
 function fmtReportDate(s) {
   if (!s) return '—';
-  return s.replace(/-/g, '/');
+  if (typeof s.toDate === 'function') {
+    const d = s.toDate();
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}/${pad(d.getMonth()+1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+  return String(s).replace(/-/g, '/');
 }
 
 /* ===== リンク ===== */
@@ -6362,6 +6781,11 @@ function showLoginScreen() {
     currentChannelUnsub = null;
   }
   chatMessages = [];
+  // 報告関連のリスナーも同様に必ずdetach
+  if (reportsAdminUnsub) { reportsAdminUnsub(); reportsAdminUnsub = null; }
+  if (myReportsUnsub) { myReportsUnsub(); myReportsUnsub = null; }
+  if (publicReportsUnsub) { publicReportsUnsub(); publicReportsUnsub = null; }
+  reports = [];
   document.getElementById('app').style.display = 'none';
   document.getElementById('login-screen').style.display = 'flex';
   document.getElementById('login-password').value = '';
@@ -6578,6 +7002,10 @@ fbAuth.onAuthStateChanged(async (user) => {
     // Firestoreの role("admin"/"driver") → 内部表記('manager'/'driver') へマッピング
     // st.currentUid はモックusers配列への暫定マッピング（次フェーズで統合予定）
     setRole(fbUser.role === 'admin' ? 'manager' : 'driver');
+
+    // 管理者は報告(reports)全件リスナーをログイン時から開始する
+    // (アプリ起動中のみのPWA通知はこのリスナーのdocChangesを起点に発火する)
+    if (fbUser.role === 'admin') attachReportsAdminListener();
 
     showAppScreen();
 

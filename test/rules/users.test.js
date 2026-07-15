@@ -1,0 +1,100 @@
+'use strict';
+const test = require('node:test');
+const { assertFails, assertSucceeds } = require('@firebase/rules-unit-testing');
+const { createTestEnv, authedContext } = require('./helpers');
+
+let testEnv;
+
+test.before(async () => {
+  testEnv = await createTestEnv('users-test');
+});
+
+test.after(async () => {
+  await testEnv.cleanup();
+});
+
+async function seed() {
+  await testEnv.clearFirestore();
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    const db = ctx.firestore();
+    await db.collection('users').doc('D12').set({
+      name: '佐藤', team: 'team_e', role: 'driver', passwordChanged: true,
+    });
+    await db.collection('users').doc('ADM1').set({
+      name: '管理者一号', team: null, role: 'admin', passwordChanged: true,
+    });
+    await db.collection('users').doc('ADM2').set({
+      name: '管理者二号', team: null, role: 'admin', passwordChanged: true,
+    });
+  });
+}
+
+test('adminは他ユーザーのroleを変更できる(driver→admin)', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'ADM1').firestore();
+  await assertSucceeds(db.collection('users').doc('D12').update({ role: 'admin' }));
+});
+
+test('adminは自分自身のroleを変更できない(自己降格防止)', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'ADM1').firestore();
+  await assertFails(db.collection('users').doc('ADM1').update({ role: 'driver' }));
+});
+
+test('adminは自分自身の他フィールド(passwordChanged等)は更新できる(role以外)', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'ADM1').firestore();
+  await assertSucceeds(db.collection('users').doc('ADM1').update({ passwordChanged: false }));
+});
+
+test('別のadminのroleは変更できる(自己降格防止は自分自身の書き込みのみが対象)', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'ADM2').firestore();
+  await assertSucceeds(db.collection('users').doc('ADM1').update({ role: 'driver' }));
+});
+
+test('一般ユーザーは自分のpasswordChangedのみ更新できる', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'D12').firestore();
+  await assertSucceeds(db.collection('users').doc('D12').update({ passwordChanged: true }));
+});
+
+test('一般ユーザーは自分のroleを変更できない(本人でもadminへ昇格不可)', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'D12').firestore();
+  await assertFails(db.collection('users').doc('D12').update({ role: 'admin' }));
+});
+
+test('一般ユーザーは他ユーザーのドキュメントを更新できない', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'D12').firestore();
+  await assertFails(db.collection('users').doc('ADM1').update({ passwordChanged: false }));
+});
+
+test('一般ユーザーは一覧取得(list)できない(admin専用)', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'D12').firestore();
+  await assertFails(db.collection('users').get());
+});
+
+test('adminは一覧取得(list)できる', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'ADM1').firestore();
+  await assertSucceeds(db.collection('users').get());
+});
+
+test('一般ユーザーはユーザーを新規作成できない', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'D12').firestore();
+  await assertFails(db.collection('users').doc('D77').set({
+    name: '新人', team: 'team_e', role: 'driver', passwordChanged: false,
+  }));
+});
+
+test('adminはユーザーを新規作成できる', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'ADM1').firestore();
+  await assertSucceeds(db.collection('users').doc('D77').set({
+    name: '新人', team: 'team_e', role: 'driver', passwordChanged: false,
+  }));
+});
