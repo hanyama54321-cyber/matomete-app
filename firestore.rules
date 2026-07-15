@@ -156,6 +156,21 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    match /manuals/{manualId} {
+      // 閲覧はログイン済み全員。作成・削除・更新はいずれもadminのみ
+      // (更新は運用上ほぼ使わないが、タイトル修正等のためadmin限定で定義しておく)
+      allow read: if isSignedIn();
+      allow create, delete, update: if isAdmin();
+
+      // 既読記録は本人のみ作成・更新可(ドキュメントID=乗務員コード)。
+      // manuals本体はadmin限定更新のため、既読登録はここを独立コレクションとして分離している。
+      match /reads/{code} {
+        allow read: if isSignedIn();
+        allow create, update: if isSignedIn() && code == myCode();
+        allow delete: if isAdmin();
+      }
+    }
+
     // 上記以外のコレクションはデフォルト拒否(明示不要だが漏れ防止)
     match /{document=**} {
       allow read, write: if false;

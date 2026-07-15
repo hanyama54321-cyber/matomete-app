@@ -4,8 +4,8 @@
   "version": "1.0.0",
   "description": "安全配送まとめてアプリ - Firestoreセキュリティルールのテスト用ツールチェーン",
   "scripts": {
-    "test:rules": "firebase emulators:exec --only firestore \"node --test test/rules/reports.test.js test/rules/users.test.js\"",
-    "emulators": "firebase emulators:start --only firestore"
+    "test:rules": "firebase emulators:exec --only firestore,storage \"node --test test/rules/*.test.js\"",
+    "emulators": "firebase emulators:start --only firestore,storage"
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^3.0.4",
