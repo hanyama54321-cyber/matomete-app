@@ -1,8 +1,10 @@
 // seed-drivers-csv.js
 // 乗務員コードCSV一括投入(差分マージ)。初期導入用。
 //
-// CSVフォーマット: 1列目=氏名、2列目=乗務員コード(5桁英数字)。
-// 1行目がヘッダー("氏名"を含む)の場合は自動でスキップする。
+// CSVフォーマット: A列=未使用(空欄)、B列=乗務員コード(5桁英数字)、C列=氏名。
+// ヘッダー行("氏名"・"乗務員コード"のいずれかの文字列を含む行)は自動でスキップする。
+// ヘッダー行に列見出しがある場合はその位置を優先して氏名/コード列を判定し、
+// ヘッダーが無い/見出し文字列が見つからない場合はB列=コード・C列=氏名の固定位置として扱う。
 //
 // 差分マージ仕様:
 //   - 既存コード(users doc既存) → 氏名のみ更新。team/role/passwordChanged等は一切触らない(温存)
@@ -22,7 +24,9 @@ const DRIVERS_CSV_EMAIL_DOMAIN = '@matomete.local'; // index.html/seed.htmlのEM
 const DRIVERS_CSV_PW_SUFFIX = '_mtm';               // index.html/seed.htmlのPW_SUFFIXと一致させること
 
 // CSVテキストを [{code, name}] にパースする。BOM除去・CRLF/LF両対応。
-// ヘッダー行("氏名"を含む行)は自動スキップ。不正な行(コード非5桁等)はinvalidへ回す。
+// ヘッダー行("氏名"/"乗務員コード"を含む行)は自動スキップし、見つかった位置を列マッピングに使う。
+// ヘッダーが無い場合はB列(index1)=コード・C列(index2)=氏名の固定位置(A列は未使用)として扱う。
+// 不正な行(コード非5桁・列数不足等)はinvalidへ回す。
 function parseDriversCsv(text) {
   const stripped = text.charCodeAt(0) === 0xFEFF ? text.slice(1) : text;
   const lines = stripped.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
@@ -31,14 +35,33 @@ function parseDriversCsv(text) {
   const invalid = [];
   const seenInFile = new Set();
 
+  // デフォルト列位置(ヘッダー無しの場合): A列=未使用、B列=コード、C列=氏名
+  let codeIdx = 1;
+  let nameIdx = 2;
+  let headerResolved = false;
+
   for (const line of lines) {
     const cols = line.split(',').map(c => c.trim());
-    if (cols.length < 2) { invalid.push({ line, reason: '列数不足(氏名,コードの2列が必要)' }); continue; }
-    const [rawName, rawCode] = cols;
-    if (rawName === '氏名' || rawCode === '乗務員コード') continue; // ヘッダー行スキップ
 
-    const code = rawCode.trim().toUpperCase();
-    const name = rawName.trim();
+    if (!headerResolved && (cols.includes('氏名') || cols.includes('乗務員コード'))) {
+      const foundName = cols.indexOf('氏名');
+      const foundCode = cols.indexOf('乗務員コード');
+      if (foundName !== -1) nameIdx = foundName;
+      if (foundCode !== -1) codeIdx = foundCode;
+      headerResolved = true;
+      continue; // ヘッダー行自体はスキップ
+    }
+    headerResolved = true; // 1行目がヘッダーでなければ以降もデフォルト位置を使う
+
+    if (cols.length <= Math.max(codeIdx, nameIdx)) {
+      invalid.push({ line, reason: `列数不足(${Math.max(codeIdx, nameIdx) + 1}列必要)` });
+      continue;
+    }
+
+    const rawCode = cols[codeIdx];
+    const rawName = cols[nameIdx];
+    const code = (rawCode || '').toUpperCase();
+    const name = (rawName || '').trim();
     if (!/^[A-Z0-9]{5}$/.test(code)) { invalid.push({ line, reason: `コード形式不正: ${rawCode}` }); continue; }
     if (!name) { invalid.push({ line, reason: '氏名が空です' }); continue; }
     if (seenInFile.has(code)) { invalid.push({ line, reason: `CSV内で重複したコード: ${code}` }); continue; }
