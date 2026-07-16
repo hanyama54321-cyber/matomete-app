@@ -171,6 +171,26 @@ service cloud.firestore {
       }
     }
 
+    match /kyt/{scenarioId} {
+      // 閲覧はログイン済み全員。シナリオ本体の作成・更新・削除はadminのみ
+      allow read: if isSignedIn();
+      allow create, update, delete: if isAdmin();
+
+      // 完了記録は本人のみ作成・更新可(ドキュメントID=乗務員コード)。
+      // manuals/reads と異なり、要件上「code(=ドキュメントID、本人一致必須)」が明記されているため
+      // フィールド側のcodeもmyCode()と突き合わせ、スコアの範囲(0〜total)も検証する。
+      // adminであっても他人の完了記録は作成・更新できない(削除のみadmin可)。
+      match /completions/{code} {
+        allow read: if isSignedIn();
+        allow create, update: if isSignedIn()
+          && code == myCode()
+          && request.resource.data.code == myCode()
+          && request.resource.data.score >= 0
+          && request.resource.data.score <= request.resource.data.total;
+        allow delete: if isAdmin();
+      }
+    }
+
     // 上記以外のコレクションはデフォルト拒否(明示不要だが漏れ防止)
     match /{document=**} {
       allow read, write: if false;

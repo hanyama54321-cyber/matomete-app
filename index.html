@@ -2141,7 +2141,7 @@ header {
           <div style="position:relative;display:flex;align-items:center;gap:14px">
             <span style="font-size:30px">🏆</span>
             <div style="flex:1">
-              <div style="font-weight:700;font-size:15px">今月の達成状況</div>
+              <div style="font-weight:700;font-size:15px">達成状況</div>
               <div id="kyt-driver-progress" style="font-size:12px;opacity:.85;margin-top:2px">— シナリオ中 — 完了</div>
             </div>
             <div style="text-align:right">
@@ -2645,118 +2645,19 @@ let manualReadsUnsub = null;      // 詳細画面で開いているマニュア�
 let manualsAllDrivers = [];       // 管理者向け既読率計算用の全ドライバーキャッシュ
 let manualReachCache = {};        // { [manualId]: {readCount, pct} } 一覧表示用のone-shotキャッシュ
 
-const kytScenarios = [
-  {
-    id:1,
-    title:"コンビニ前路上での荷下ろし",
-    desc:"幹線道路沿いのコンビニに納品中、店舗専用駐車スペースが満車のため、店舗前の路肩に停車してロールボックスを店内へ搬入しています。この場面の危険ポイントは？",
-    img:"🏪",
-    hints:[
-      "後方からの自転車・バイクとの接触",
-      "車両ドア開放時の通行人との接触",
-      "ハザード・三角表示板の不備による追突",
-      "歩道と車道の段差でロールボックスが転倒",
-      "歩道の歩行者（高齢者・ベビーカー）への接触"
-    ],
-    difficulty:"高"
-  },
-  {
-    id:2,
-    title:"早朝5時のコンビニ納品",
-    desc:"早朝5時、まだ薄暗い時間帯にコンビニへ商品を納品しています。お客様はほぼおらず店員も品出しで忙しい状況。注意すべきリスクは？",
-    img:"🌅",
-    hints:[
-      "暗がりでの段差・障害物の見落とし",
-      "夜勤明け・睡眠不足による注意力低下",
-      "搬入口前のゴミ袋・台車などへの躓き",
-      "自動ドアの急閉による挟まれ",
-      "品出し中の店員が陳列棚の死角にいる"
-    ],
-    difficulty:"中"
-  },
-  {
-    id:3,
-    title:"狭い店内通路での商品搬入",
-    desc:"コンビニの狭い通路をロールボックスで通り、バックヤードへ商品を搬入しています。店内には数名のお客様も。この場面の危険ポイントは？",
-    img:"🛒",
-    hints:[
-      "陳列棚への接触による商品落下",
-      "他のお客様（特に子ども）との衝突",
-      "曲がり角・什器の死角からの飛び出し",
-      "床に落ちた商品・水濡れによる転倒",
-      "ロールボックス車輪によるお客様の足の轢過"
-    ],
-    difficulty:"高"
-  },
-  {
-    id:4,
-    title:"冷凍・冷蔵商品の急ぎ搬入",
-    desc:"冷凍車から冷凍・冷蔵商品を素早くバックヤードの冷凍庫へ運び入れています。温度管理のため作業を急ぎ気味です。リスクは？",
-    img:"❄️",
-    hints:[
-      "床の結露・霜による滑り転倒",
-      "重量物の無理な持ち上げによる腰痛",
-      "冷凍庫内での閉じ込め事故",
-      "素手作業による凍傷・冷凍焼け",
-      "急ぎ作業で段ボール落下、足への挟まれ"
-    ],
-    difficulty:"中"
-  },
-  {
-    id:5,
-    title:"昼ピーク時の駐車場バック進入",
-    desc:"昼ピーク時、人通りの多いコンビニ駐車場へバック（後退）で進入しようとしています。お客様の出入りも多い状況です。どんな危険がありますか？",
-    img:"🚙",
-    hints:[
-      "後方の歩行者・子どもの見落とし",
-      "サイドミラー死角の自転車・バイク",
-      "出庫車両との接触",
-      "駐車場内のショッピングカート・買物袋",
-      "誘導者なしでの後退による接触事故"
-    ],
-    difficulty:"高"
-  },
-  {
-    id:6,
-    title:"雨天時のコンビニ搬入",
-    desc:"激しい雨の中、レインコート姿でコンビニへ商品を搬入しています。店舗入口は濡れて滑りやすくなっています。注意点は？",
-    img:"🌧️",
-    hints:[
-      "雨で濡れた店舗入口での転倒",
-      "レインコートのフードによる視界・聴覚低下",
-      "段ボールの濡れ・破損による荷崩れ",
-      "傘を持ったお客様との接触",
-      "店内床への雨水持込で他のお客様が転倒"
-    ],
-    difficulty:"中"
-  },
-  {
-    id:7,
-    title:"連続配送中の疲労（午前8店舗目）",
-    desc:"午前中だけで8店舗目のコンビニ納品です。時間が押しており、ペースを上げて作業しています。潜むリスクは？",
-    img:"⏰",
-    hints:[
-      "焦りによるロールボックス操作ミス",
-      "確認不足による誤配・荷数間違い",
-      "疲労で足元への注意散漫・転倒",
-      "シートベルト・施錠など安全手順の省略",
-      "店舗ルール確認不足による店員とのトラブル"
-    ],
-    difficulty:"高"
-  },
-];
-
-// KYTシナリオ完了状況（Firestore: kytCompletions/{userId}/{scenarioId}）
-const kytCompletions = {
-  u01: { 1:{score:5, total:5, completedAt:'2026-06-15'}, 2:{score:4, total:5, completedAt:'2026-06-16'}, 6:{score:5, total:5, completedAt:'2026-06-18'} },
-  u02: { 1:{score:5, total:5, completedAt:'2026-06-14'}, 3:{score:5, total:5, completedAt:'2026-06-15'}, 5:{score:4, total:5, completedAt:'2026-06-17'} },
-  u03: { 1:{score:5, total:5, completedAt:'2026-06-14'}, 2:{score:5, total:5, completedAt:'2026-06-15'} },
-  u04: { 1:{score:4, total:5, completedAt:'2026-06-13'}, 3:{score:4, total:5, completedAt:'2026-06-14'}, 4:{score:5, total:5, completedAt:'2026-06-16'} },
-  u05: { 1:{score:5, total:5, completedAt:'2026-06-13'}, 7:{score:5, total:5, completedAt:'2026-06-17'} },
-  u06: { 1:{score:5, total:5, completedAt:'2026-06-13'}, 4:{score:4, total:5, completedAt:'2026-06-15'} },
-  u07: { 2:{score:5, total:5, completedAt:'2026-06-14'}, 5:{score:5, total:5, completedAt:'2026-06-17'}, 6:{score:5, total:5, completedAt:'2026-06-18'} },
-  u08: { 6:{score:4, total:5, completedAt:'2026-06-18'} },
-};
+/* ===== KYT（危険予知トレーニング）データ =====
+   Firestore スキーマ:
+     - kyt/{scenarioId}               …シナリオ本体(title/desc/img/difficulty/hints/createdAt/updatedAt)
+     - kyt/{scenarioId}/completions/{code} …完了記録(本人のみ作成・更新可、ドキュメントID=乗務員コード)
+   kytScenarios はログイン時に attachKytScenariosListener() で全件onSnapshotし、その読み取り専用ミラーを保持する。
+   completions は常時リスナーを張らず、タブ表示のたびにone-shotで取得しキャッシュする
+   (ドライバー: kytMyCompletions / 管理者: kytAllDrivers + kytCompletionsCache)。 */
+let kytScenarios = [];            // Firestoreミラー(全ユーザー共通)
+let kytScenariosUnsub = null;     // kytコレクションリスナーのunsubscribe
+let kytAllDrivers = [];           // 管理者向け: 全ドライバーキャッシュ
+let kytCompletionsCache = {};     // 管理者向け one-shotキャッシュ: { [code]: { [scenarioId]: {score,total} } }
+let kytMyCompletions = {};        // ドライバー向け one-shotキャッシュ: { [scenarioId]: {score,total} }
+let kytExpandedCode = null;       // 管理者ダッシュボードのアコーディオン展開中コード(同時に1件のみ)
 
 /* ===== チャットメッセージ（Firestore接続） =====
    Firestore スキーマ: channels/{channelId}/messages/{messageId}
@@ -3205,7 +3106,7 @@ function switchTab(id, btn) {
   btn.classList.add('active');
   document.getElementById('main').scrollTop = 0;
   if (id === 'chat')     { renderChatTab(); scrollChatBot(); }
-  if (id === 'kyt')      { backKYT(); }
+  if (id === 'kyt')      { renderKytTab(); }
   if (id === 'manuals')  { renderManTab(); }
   if (id === 'feedback') { renderFbTab(); }
   if (id === 'game')     { renderGameTab(); }
@@ -5489,11 +5390,80 @@ async function renderManTab() {
 
 /* ===== KYT ===== */
 
-function calcDriverKytScore(uid) {
-  const comp = kytCompletions[uid] || {};
-  const doneIds = Object.keys(comp).map(Number);
+// ログイン時(全ロール共通)に開始するkyt全件リスナー。manualsと同じくシナリオ数は可変なので
+// ミラー配列(kytScenarios)を常に最新に保つ。完了記録(completions)はここでは購読しない。
+function attachKytScenariosListener() {
+  if (kytScenariosUnsub) { kytScenariosUnsub(); kytScenariosUnsub = null; }
+  kytScenariosUnsub = fbDb.collection('kyt').orderBy('createdAt', 'asc')
+    .onSnapshot(snap => {
+      kytScenarios = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const tabEl = document.getElementById('tab-kyt');
+      if (!tabEl || !tabEl.classList.contains('active')) return;
+      if (document.getElementById('kyt-quiz').classList.contains('hidden')) renderKYTList();
+    }, err => {
+      console.error('KYTシナリオリスナーエラー:', err);
+      showToast('⚠️ シナリオの取得に失敗しました（' + (err.code || err.message) + '）');
+    });
+}
+
+// 管理者向け: 全ドライバー一覧を取得しキャッシュ(完了率・メンバー別状況の母数に使用)
+async function fetchKytAllDrivers() {
+  try {
+    const snap = await fbDb.collection('users').where('role', '==', 'driver').get();
+    kytAllDrivers = snap.docs.map(d => ({ code: d.id, ...d.data() }));
+  } catch (e) {
+    console.error('ドライバー一覧取得エラー(KYT):', e);
+  }
+}
+
+// 管理者向け: 全シナリオのcompletionsをone-shotで取得しキャッシュ(常時リアルタイムにはしない)
+async function refreshKytCompletionsCache() {
+  const cache = {};
+  await Promise.all(kytScenarios.map(async s => {
+    try {
+      const snap = await fbDb.collection('kyt').doc(s.id).collection('completions').get();
+      snap.forEach(d => {
+        const data = d.data();
+        (cache[d.id] ||= {})[s.id] = { score: data.score, total: data.total };
+      });
+    } catch (e) {
+      console.error('KYT完了状況取得エラー:', e);
+    }
+  }));
+  kytCompletionsCache = cache;
+}
+
+// ドライバー向け: 自分の完了状況をone-shotで取得しキャッシュ
+async function fetchMyKytCompletions() {
+  if (!fbUser) return;
+  const results = await Promise.all(kytScenarios.map(async s => {
+    try {
+      const doc = await fbDb.collection('kyt').doc(s.id).collection('completions').doc(fbUser.code).get();
+      return [s.id, doc.exists ? doc.data() : null];
+    } catch (e) {
+      return [s.id, null];
+    }
+  }));
+  kytMyCompletions = Object.fromEntries(results.filter(([, d]) => d).map(([id, d]) => [id, d]));
+}
+
+// タブ入場時のエントリポイント。クイズ状態をリセットし、ロールに応じてone-shot集計を取得してから描画する
+async function renderKytTab() {
+  st.kytScene = null; st.kytDone = false; st.kytSel = new Set();
+  document.getElementById('kyt-quiz').classList.add('hidden');
+  document.getElementById('kyt-list').classList.remove('hidden');
+  if (st.role === 'manager') {
+    if (kytAllDrivers.length === 0) await fetchKytAllDrivers();
+    await refreshKytCompletionsCache();
+  } else {
+    await fetchMyKytCompletions();
+  }
+  renderKYTList();
+}
+
+function calcDriverKytScore() {
   const total = kytScenarios.length;
-  const done  = doneIds.length;
+  const done  = Object.keys(kytMyCompletions).length;
   const pct   = total === 0 ? 0 : Math.round(done / total * 100);
   return { done, total, pct };
 }
@@ -5506,30 +5476,28 @@ function renderKYTList() {
   document.getElementById('kyt-manager-dashboard').classList.toggle('hidden', !isManager);
 
   if (!isManager) {
-    const score = calcDriverKytScore(st.currentUid);
+    const score = calcDriverKytScore();
     const el = document.getElementById('kyt-driver-progress');
     const scoreEl = document.getElementById('kyt-driver-score');
-    if (el)      el.textContent = `7シナリオ中 ${score.done} 完了`;
+    if (el)      el.textContent = `${score.total}シナリオ中 ${score.done} 完了`;
     if (scoreEl) scoreEl.textContent = score.pct;
   } else {
     renderKytManagerDashboard();
   }
 
-  const comp = kytCompletions[st.currentUid] || {};
   document.getElementById('kyt-scenarios').innerHTML = kytScenarios.map(s => {
-    const isDone = comp[s.id];
+    const isDone = kytMyCompletions[s.id];
     const scoreLabel = isDone ? `${isDone.score}/${isDone.total}` : null;
     const mgrInfo = isManager ? (() => {
-      const drivers = users.filter(u => u.role === 'driver');
-      const completedUsers = drivers.filter(u => (kytCompletions[u.id] || {})[s.id]);
-      const pct = drivers.length === 0 ? 0 : Math.round(completedUsers.length / drivers.length * 100);
-      return { completedUsers, total: drivers.length, pct };
+      const completedUsers = kytAllDrivers.filter(u => (kytCompletionsCache[u.code] || {})[s.id]);
+      const pct = kytAllDrivers.length === 0 ? 0 : Math.round(completedUsers.length / kytAllDrivers.length * 100);
+      return { completedUsers, total: kytAllDrivers.length, pct };
     })() : null;
 
     return `
       <div class="card" style="display:flex;align-items:center;gap:14px;margin-bottom:10px">
         <div style="font-size:32px;flex-shrink:0">${s.img}</div>
-        <div style="flex:1;min-width:0;cursor:pointer" ${isManager ? '' : `onclick="startKYT(${s.id})"`}>
+        <div style="flex:1;min-width:0;cursor:pointer" ${isManager ? '' : `onclick="startKYT('${s.id}')"`}>
           <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:wrap">
             ${mkTag('難易度: '+s.difficulty, diffColor[s.difficulty])}
             ${isDone && !isManager ? `<span style="background:rgba(31,157,85,.12);color:var(--safe);font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px">✓ 完了 ${scoreLabel}</span>` : ''}
@@ -5547,24 +5515,24 @@ function renderKYTList() {
         </div>
         ${isManager ? `
           <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">
-            <button class="btn btn-ghost" style="font-size:12px;padding:6px 10px;min-height:34px" onclick="openKytEditor(${s.id})">✏️ 編集</button>
-            <button class="btn btn-ghost" style="font-size:12px;padding:6px 10px;min-height:34px;color:var(--danger);border-color:rgba(217,58,63,.25)" onclick="deleteKytScenario(${s.id})">🗑 削除</button>
+            <button class="btn btn-ghost" style="font-size:12px;padding:6px 10px;min-height:34px" onclick="openKytEditor('${s.id}')">✏️ 編集</button>
+            <button class="btn btn-ghost" style="font-size:12px;padding:6px 10px;min-height:34px;color:var(--danger);border-color:rgba(217,58,63,.25)" onclick="deleteKytScenario('${s.id}')">🗑 削除</button>
           </div>
         ` : `
-          <button class="btn btn-primary" style="padding:10px 14px;flex-shrink:0" onclick="startKYT(${s.id})">${isDone ? '再挑戦' : '開始'}</button>
+          <button class="btn btn-primary" style="padding:10px 14px;flex-shrink:0" onclick="startKYT('${s.id}')">${isDone ? '再挑戦' : '開始'}</button>
         `}
       </div>`;
   }).join('');
 }
 
 function renderKytManagerDashboard() {
-  const drivers = users.filter(u => u.role === 'driver');
+  const drivers = kytAllDrivers;
   const totalScenarios = kytScenarios.length;
   const userStats = drivers.map(u => {
-    const comp = kytCompletions[u.id] || {};
+    const comp = kytCompletionsCache[u.code] || {};
     const done = Object.keys(comp).length;
-    const pct  = Math.round(done / totalScenarios * 100);
-    return { ...u, done, pct };
+    const pct  = totalScenarios === 0 ? 0 : Math.round(done / totalScenarios * 100);
+    return { ...u, done, pct, comp };
   }).sort((a, b) => b.done - a.done);
   const avgPct = userStats.length === 0 ? 0
     : Math.round(userStats.reduce((s, u) => s + u.pct, 0) / userStats.length);
@@ -5611,21 +5579,40 @@ function renderKytManagerDashboard() {
         <button class="btn-csv" onclick="exportKytCsv()" style="padding:4px 10px;font-size:11px">📄 CSV</button>
       </div>
       ${userStats.map(u => `
-        <div class="user-row" style="flex-direction:column;align-items:flex-start;gap:6px;padding:12px">
-          <div style="display:flex;align-items:center;gap:10px;width:100%">
-            <div class="msg-av" style="background:#5B8FE0;width:30px;height:30px;font-size:12px">${u.name[0]}</div>
-            <div class="user-info">
-              <div class="user-name">${escHtml(u.name)}</div>
-              <div class="user-meta">${escHtml(getTeamLabel(u.team))} · ${escHtml(u.driverNo)}</div>
-            </div>
-            <span class="user-status ${u.pct===100?'read':u.done>0?'':'unread'}" style="margin-left:auto">${u.done}/${totalScenarios}完了</span>
+        <div class="kyt-driver-row" onclick="toggleKytDriverRow('${u.code}')"
+          style="padding:10px 12px;border-bottom:1px solid var(--border);cursor:pointer">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-weight:700;font-size:13px;color:var(--navy);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(u.name)}</span>
+            <span style="font-size:11px;color:var(--text-muted);flex-shrink:0">${escHtml(getTeamLabel(u.team))}</span>
+            <span class="user-status ${u.pct===100?'read':u.done>0?'':'unread'}" style="flex-shrink:0">${u.done}/${totalScenarios}完了</span>
           </div>
-          <div style="width:100%;height:6px;background:var(--surface2);border-radius:3px;overflow:hidden">
-            <div style="height:100%;width:${u.pct}%;background:${u.pct===100?'var(--safe)':u.done>0?'var(--primary)':'var(--border)'};border-radius:3px"></div>
+          <div style="width:100%;height:4px;background:var(--surface2);border-radius:2px;margin-top:6px;overflow:hidden">
+            <div style="height:100%;width:${u.pct}%;background:${u.pct===100?'var(--safe)':u.done>0?'var(--primary)':'var(--border)'};border-radius:2px"></div>
           </div>
-        </div>`).join('')}
+        </div>
+        ${kytExpandedCode === u.code ? `
+          <div class="kyt-driver-detail" style="padding:10px 12px 12px 12px;background:var(--surface2);border-bottom:1px solid var(--border)">
+            ${kytScenarios.map(s => {
+              const c2 = u.comp[s.id];
+              return `
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 0;font-size:12px">
+                  <span style="color:var(--text-sub);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0">${escHtml(s.title)}</span>
+                  ${c2
+                    ? `<span style="color:var(--safe);font-weight:700;flex-shrink:0">✓ ${c2.score}/${c2.total}</span>`
+                    : `<span style="color:var(--text-muted);flex-shrink:0">未完了</span>`}
+                </div>`;
+            }).join('')}
+          </div>
+        ` : ''}
+      `).join('')}
     </div>
   `;
+}
+
+// メンバー別一覧のアコーディオン展開切替(同時に1件のみ展開、キャッシュ済みデータのみで再描画)
+function toggleKytDriverRow(code) {
+  kytExpandedCode = kytExpandedCode === code ? null : code;
+  renderKytManagerDashboard();
 }
 
 function startKYT(id) {
@@ -5664,8 +5651,6 @@ function drawKYTQuiz() {
     const score = [...st.kytSel].filter(o=>s.hints.includes(o)).length;
     const wrong = [...st.kytSel].some(o=>!s.hints.includes(o));
     const perfect = score===s.hints.length && !wrong;
-    if (!kytCompletions[st.currentUid]) kytCompletions[st.currentUid] = {};
-    kytCompletions[st.currentUid][s.id] = { score, total:s.hints.length, completedAt:new Date().toISOString().slice(0,10) };
     foot = `<div style="background:var(--surface2);border-radius:10px;padding:16px;display:flex;align-items:center;gap:14px">
       <div style="font-size:38px">${perfect?'🎯':score>=1?'👍':'📚'}</div>
       <div style="flex:1">
@@ -5700,16 +5685,32 @@ function toggleKYT(opt) {
   drawKYTQuiz();
 }
 
-function submitKYT() {
-  if (st.kytSel.size===0) return;
+async function submitKYT() {
+  if (st.kytSel.size===0 || !fbUser) return;
   st.kytDone = true;
+  const s = st.kytScene;
+  const score = [...st.kytSel].filter(o=>s.hints.includes(o)).length;
+  const total = s.hints.length;
   drawKYTQuiz();
+  try {
+    await fbDb.collection('kyt').doc(s.id).collection('completions').doc(fbUser.code).set({
+      code: fbUser.code,
+      name: fbUser.name,
+      score, total,
+      completedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    kytMyCompletions[s.id] = { score, total };
+  } catch (e) {
+    console.error('KYT完了記録エラー:', e);
+    showToast('⚠️ 完了記録の保存に失敗しました（' + (e.code || e.message) + '）');
+  }
 }
 
 function backKYT() {
   st.kytScene = null; st.kytDone = false; st.kytSel = new Set();
   document.getElementById('kyt-quiz').classList.add('hidden');
   document.getElementById('kyt-list').classList.remove('hidden');
+  // kytMyCompletions は submitKYT() 内で楽観更新済みのため再フェッチ不要
   renderKYTList();
 }
 
@@ -5773,7 +5774,7 @@ function openKytEditor(id) {
       </div>
       <div class="modal-footer">
         <button class="btn btn-ghost" style="flex:1" onclick="closeModal()">キャンセル</button>
-        <button id="kyt-save-btn" class="btn btn-primary" style="flex:2" onclick="saveKytScenario(${isEdit ? id : 'null'})" disabled>
+        <button id="kyt-save-btn" class="btn btn-primary" style="flex:2" onclick="saveKytScenario(${isEdit ? `'${id}'` : 'null'})" disabled>
           ${isEdit ? '変更を保存' : '追加する'}
         </button>
       </div>
@@ -5827,7 +5828,7 @@ function updateKytSaveBtn() {
   btn.style.opacity = ok ? '1' : '0.45';
 }
 
-function saveKytScenario(id) {
+async function saveKytScenario(id) {
   const title = (document.getElementById('kyt-ed-title').value || '').trim();
   const desc  = (document.getElementById('kyt-ed-desc').value  || '').trim();
   const img   = document.getElementById('kyt-img-val').value || '🏪';
@@ -5835,35 +5836,51 @@ function saveKytScenario(id) {
   const hints = [...document.querySelectorAll('.kyt-hint-input')].map(el => el.value.trim()).filter(Boolean);
   if (!title || !desc || hints.length < 3) return;
   const isEdit = id !== null && id !== 'null' && id !== undefined;
-  if (isEdit) {
-    const s = kytScenarios.find(x => x.id === id);
-    if (s) { s.title=title; s.desc=desc; s.img=img; s.difficulty=diff; s.hints=hints; }
-  } else {
-    const newId = Math.max(0, ...kytScenarios.map(s => s.id)) + 1;
-    kytScenarios.push({ id:newId, title, desc, img, difficulty:diff, hints });
+  const btn = document.getElementById('kyt-save-btn');
+  if (btn) btn.disabled = true;
+  try {
+    if (isEdit) {
+      await fbDb.collection('kyt').doc(id).update({
+        title, desc, img, difficulty: diff, hints,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+    } else {
+      await fbDb.collection('kyt').add({
+        title, desc, img, difficulty: diff, hints,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+    closeModal();
+    showToast(isEdit ? '✓ シナリオを更新しました' : '✅ シナリオを追加しました');
+  } catch (e) {
+    console.error('シナリオ保存エラー:', e);
+    showToast('⚠️ 保存に失敗しました（' + (e.code || e.message) + '）');
+    if (btn) btn.disabled = false;
   }
-  closeModal();
-  renderKYTList();
-  setTimeout(() => showToast(isEdit ? '✓ シナリオを更新しました' : '✅ シナリオを追加しました'), 100);
 }
 
-function deleteKytScenario(id) {
+async function deleteKytScenario(id) {
   const s = kytScenarios.find(x => x.id === id);
   if (!s || !confirm(`「${s.title}」を削除しますか？`)) return;
-  kytScenarios.splice(kytScenarios.findIndex(x => x.id === id), 1);
-  renderKYTList();
-  setTimeout(() => showToast('🗑 シナリオを削除しました'), 100);
+  try {
+    await fbDb.collection('kyt').doc(id).delete();
+    showToast('🗑 シナリオを削除しました');
+  } catch (e) {
+    console.error('シナリオ削除エラー:', e);
+    showToast('⚠️ 削除に失敗しました（' + (e.code || e.message) + '）');
+  }
 }
 
 function exportKytCsv() {
-  const drivers = users.filter(u => u.role === 'driver');
-  const header = ['ドライバー番号','氏名','チーム', ...kytScenarios.map(s => s.title.slice(0,12)), '完了数','完了率'];
+  const drivers = kytAllDrivers;
+  const header = ['乗務員コード','氏名','チーム', ...kytScenarios.map(s => s.title.slice(0,12)), '完了数','完了率'];
   const rows = drivers.map(u => {
-    const comp = kytCompletions[u.id] || {};
+    const comp = kytCompletionsCache[u.code] || {};
     const cells = kytScenarios.map(s => comp[s.id] ? `${comp[s.id].score}/${comp[s.id].total}` : '未');
     const doneCount = Object.keys(comp).length;
-    const pct = Math.round(doneCount / kytScenarios.length * 100);
-    return [u.driverNo, u.name, u.team, ...cells, doneCount, `${pct}%`];
+    const pct = kytScenarios.length === 0 ? 0 : Math.round(doneCount / kytScenarios.length * 100);
+    return [u.code, u.name, getTeamLabel(u.team), ...cells, doneCount, `${pct}%`];
   });
   const lines = [
     '# KYT 完了状況レポート',
@@ -6930,6 +6947,13 @@ function showLoginScreen() {
   manuals = [];
   manualsAllDrivers = [];
   manualReachCache = {};
+  // KYT関連のリスナー・キャッシュも同様に必ずdetach/クリア
+  if (kytScenariosUnsub) { kytScenariosUnsub(); kytScenariosUnsub = null; }
+  kytScenarios = [];
+  kytAllDrivers = [];
+  kytCompletionsCache = {};
+  kytMyCompletions = {};
+  kytExpandedCode = null;
   document.getElementById('app').style.display = 'none';
   document.getElementById('login-screen').style.display = 'flex';
   document.getElementById('login-password').value = '';
@@ -7153,6 +7177,9 @@ fbAuth.onAuthStateChanged(async (user) => {
 
     // 手順書(manuals)は全ロール共通でログイン時から購読を開始する
     attachManualsListener();
+
+    // KYT(シナリオ本体)も同様に全ロール共通でログイン時から購読を開始する
+    attachKytScenariosListener();
 
     showAppScreen();
 
