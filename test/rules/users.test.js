@@ -98,3 +98,33 @@ test('adminはユーザーを新規作成できる', async () => {
     name: '新人', team: 'team_e', role: 'driver', passwordChanged: false,
   }));
 });
+
+test('一般ユーザーは自分のteamを単独更新できる(所属班の自己変更)', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'D12').firestore();
+  await assertSucceeds(db.collection('users').doc('D12').update({ team: 'team_i' }));
+});
+
+test('一般ユーザーはteamをホワイトリスト外の値に変更できない', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'D12').firestore();
+  await assertFails(db.collection('users').doc('D12').update({ team: '本部' }));
+});
+
+test('一般ユーザーはteamをnullに変更できない(ホワイトリストにnullは含まない)', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'D12').firestore();
+  await assertFails(db.collection('users').doc('D12').update({ team: null }));
+});
+
+test('一般ユーザーはteamとroleを同時更新できない(hasOnly([\'team\'])単独のみ許可)', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'D12').firestore();
+  await assertFails(db.collection('users').doc('D12').update({ team: 'team_i', role: 'admin' }));
+});
+
+test('一般ユーザーは他ユーザーのteamを更新できない', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'D12').firestore();
+  await assertFails(db.collection('users').doc('ADM1').update({ team: 'team_i' }));
+});

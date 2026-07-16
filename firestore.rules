@@ -37,13 +37,19 @@ service cloud.firestore {
       allow get: if isSignedIn() && (myCode() == code || isAdmin());
       // 一覧取得はadminのみ(ユーザー管理画面用)
       allow list: if isAdmin();
-      // 本人は passwordChanged フィールドのみ更新可(role等は変更不可)
+      // 本人は passwordChanged フィールドのみ、または team フィールドのみ(所属班の自己変更)を更新可(role等は変更不可)
+      // team自己変更はteam_a〜team_iのホワイトリストのみ許可(channelVisible()がteamを信頼するため、任意値の書込みは班チャンネルへの不正アクセスに直結する)
       // adminは全フィールド更新可(役割変更用)。ただし自分自身のroleは変更不可(自己降格防止)
       allow update: if (isAdmin()
             && !(myCode() == code && request.resource.data.role != resource.data.role))
         || (myCode() == code
             && request.resource.data.diff(resource.data)
-               .affectedKeys().hasOnly(['passwordChanged']));
+               .affectedKeys().hasOnly(['passwordChanged']))
+        || (myCode() == code
+            && request.resource.data.diff(resource.data)
+               .affectedKeys().hasOnly(['team'])
+            && request.resource.data.team in
+               ['team_a','team_b','team_c','team_d','team_e','team_f','team_g','team_h','team_i']);
       // 作成・削除はadminのみ(CSV一括投入もこの権限で通る)
       allow create, delete: if isAdmin();
     }

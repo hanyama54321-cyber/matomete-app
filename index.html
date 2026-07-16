@@ -1973,8 +1973,16 @@ header {
       <button id="um-user-mgmt-btn" class="user-menu-item hidden" onclick="openUserManagement()">
         <span class="um-icon">🗂️</span>
         <div style="flex:1">
-          <div style="font-weight:700">ユーザー管理</div>
-          <div style="font-size:11px;color:var(--text-muted);margin-top:1px">コード検索・役割変更（管理者のみ）</div>
+          <div style="font-weight:700">乗務員マスタ</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:1px">新規登録・編集・削除・役割変更（管理者のみ）</div>
+        </div>
+        <span style="font-size:12px;color:var(--text-muted)">›</span>
+      </button>
+      <button id="um-team-mgmt-btn" class="user-menu-item hidden" onclick="openTeamManagement()">
+        <span class="um-icon">🚚</span>
+        <div style="flex:1">
+          <div style="font-weight:700">班編成管理</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:1px">班長名・呼称の編集（管理者のみ）</div>
         </div>
         <span style="font-size:12px;color:var(--text-muted)">›</span>
       </button>
@@ -2443,7 +2451,9 @@ header {
      - displayName : UI表示用文字列（下のmapで自動生成）
    ※ team_id 自体（team_a〜team_i）は恒久キー。班長交代があっても id は変更しない。
       表示だけを変えたい場合は leaderName / label を更新するだけでよい。 */
-const teams = [
+// teams はログイン時に attachTeamsListener() で Firestore(teams コレクション)を
+// onSnapshotミラーする。初期値はリスナー着信前のフォールバック表示用モック。
+let teams = [
   { id:'all',    code:null, leaderName:null,   label:'全員' },
   { id:'team_a', code:'A',  leaderName:'中尾',  label:'中尾班' },
   { id:'team_b', code:'B',  leaderName:'阿部',  label:'阿部班' },
@@ -2459,6 +2469,26 @@ const teams = [
   displayName: t.id === 'all' ? '全員' : `${t.code}班（${t.label}）`,
   count: 0, // recalcTeamCounts() で users から動的算出
 }));
+let teamsUnsub = null;    // teamsコレクションリスナーのunsubscribe
+let teamsLoaded = false;  // 初回スナップショット受信済みか(班編成管理・プロフィールのローディング判定用)
+
+// ログイン時に開始し、teams配列をFirestoreの生きたミラーへ差し替える(全ロール共通)
+function attachTeamsListener() {
+  if (teamsUnsub) { teamsUnsub(); teamsUnsub = null; }
+  teamsUnsub = fbDb.collection('teams').orderBy('order').onSnapshot(snap => {
+    const all = { id:'all', code:null, leaderName:null, label:'全員', displayName:'全員', count:0 };
+    teams = [all, ...snap.docs.map(d => ({ id: d.id, ...d.data(), count: 0 }))];
+    teamsLoaded = true;
+    recalcTeamCounts();
+    renderChannelChips();
+    refreshUserMenuHeader();
+    const tmList = document.getElementById('tm-list');
+    if (tmList) tmList.innerHTML = renderTeamManagementList();
+  }, err => {
+    console.error('teamsリスナーエラー:', err);
+    showToast('⚠️ 班情報の取得に失敗しました（' + (err.code || err.message) + '）');
+  });
+}
 
 const getTeamLabel = id => (teams.find(t => t.id === id) || {}).label || id || '—';
 
@@ -2815,7 +2845,10 @@ function closeUserMenu() {
 
 function openProfileEdit() {
   closeUserMenu();
-  const me = users.find(u => u.id === st.currentUid) || users[0];
+  if (!fbUser) return;
+  // team_i(安全指導班)を含む全班を選択肢にする。'未設定'は一般ユーザーには出さない
+  // (firestore.rulesのteam自己更新ホワイトリストがteam_a〜team_iのみでnullを許可しないため)
+  const teamOptions = teams.filter(t => t.id !== 'all');
   openModal(`
     <div class="modal-card">
       <div class="modal-header">
@@ -2824,23 +2857,18 @@ function openProfileEdit() {
       </div>
       <div class="modal-body">
         <div style="text-align:center;padding:16px 0 20px">
-          <div class="user-menu-av" style="width:60px;height:60px;font-size:24px;margin:0 auto 10px">${me.name[0]}</div>
-          <div style="font-weight:700;font-size:17px;color:var(--navy)">${escHtml(me.name)}</div>
-          <div style="font-size:12px;color:var(--text-muted);margin-top:3px">${escHtml(getTeamLabel(me.team))} · ${escHtml(me.driverNo)}</div>
+          <div class="user-menu-av" style="width:60px;height:60px;font-size:24px;margin:0 auto 10px">${escHtml(fbUser.name?.[0] || '?')}</div>
+          <div style="font-weight:700;font-size:17px;color:var(--navy)">${escHtml(fbUser.name || '')}</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:3px">${escHtml(getTeamLabel(fbUser.team))} · ${escHtml(fbUser.code)}</div>
         </div>
         <div class="divider"></div>
 
         <div class="form-group">
-          <label class="form-label">
-            所属班
-            <span style="font-size:10px;font-weight:500;color:var(--text-muted);margin-left:6px">（変更不可）</span>
-          </label>
-          <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 14px;font-size:14px;color:var(--text-sub);font-weight:600;display:flex;align-items:center;gap:8px">
-            <span style="font-size:16px">🚚</span>
-            <span>${escHtml(getTeamLabel(me.team))}</span>
-            <span style="margin-left:auto;font-size:11px;background:var(--border);color:var(--text-muted);border-radius:4px;padding:2px 6px">固定</span>
-          </div>
-          <p style="font-size:11px;color:var(--text-muted);margin-top:4px">所属班の変更は管理者にお問い合わせください</p>
+          <label class="form-label">所属班</label>
+          <select id="prof-team" class="input-field">
+            ${teamOptions.map(t => `<option value="${t.id}" ${t.id === fbUser.team ? 'selected' : ''}>${escHtml(t.displayName)}</option>`).join('')}
+          </select>
+          <p style="font-size:11px;color:var(--text-muted);margin-top:4px">所属班を変更すると、班チャンネルの閲覧範囲が切り替わります</p>
         </div>
 
         <div class="form-group">
@@ -2850,7 +2878,7 @@ function openProfileEdit() {
           </label>
           <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 14px;font-size:14px;color:var(--text-sub);font-weight:600;display:flex;align-items:center;gap:8px">
             <span style="font-size:16px">🪪</span>
-            <span>${escHtml(me.driverNo)}</span>
+            <span>${escHtml(fbUser.code)}</span>
             <span style="margin-left:auto;font-size:11px;background:var(--border);color:var(--text-muted);border-radius:4px;padding:2px 6px">固定</span>
           </div>
           <p style="font-size:11px;color:var(--text-muted);margin-top:4px">乗務員コードの変更は管理者にお問い合わせください</p>
@@ -2860,12 +2888,10 @@ function openProfileEdit() {
 
         <div class="form-group" style="margin-bottom:0">
           <label class="form-label">パスワード変更</label>
-          <input type="password" id="prof-pw-cur" class="input-field" placeholder="現在のパスワード"
-            style="margin-bottom:8px" autocomplete="current-password">
-          <input type="password" id="prof-pw-new" class="input-field" placeholder="新しいパスワード（8文字以上）"
-            style="margin-bottom:8px" autocomplete="new-password" oninput="checkProfPw()">
+          <input type="password" id="prof-pw-new" class="input-field" placeholder="新しいパスワード（5文字以上）"
+            style="margin-bottom:8px" autocomplete="new-password" minlength="5" oninput="checkProfPw()">
           <input type="password" id="prof-pw-confirm" class="input-field" placeholder="新しいパスワード（確認）"
-            autocomplete="new-password" oninput="checkProfPw()">
+            autocomplete="new-password" minlength="5" oninput="checkProfPw()">
           <div id="prof-pw-msg" style="font-size:11px;margin-top:6px;color:var(--text-muted)">
             ※ 変更しない場合は空欄のまま保存してください
           </div>
@@ -2873,7 +2899,7 @@ function openProfileEdit() {
       </div>
       <div class="modal-footer">
         <button class="btn btn-ghost" style="flex:1" onclick="closeModal()">キャンセル</button>
-        <button class="btn btn-primary" style="flex:2" onclick="saveProfile()">保存する</button>
+        <button id="prof-save-btn" class="btn btn-primary" style="flex:2" onclick="saveProfile()">保存する</button>
       </div>
     </div>
   `);
@@ -2887,9 +2913,9 @@ function checkProfPw() {
   if (!nw) {
     msg.style.color = 'var(--text-muted)';
     msg.textContent = '※ 変更しない場合は空欄のまま保存してください';
-  } else if (nw.length < 8) {
+  } else if (nw.length < 5) {
     msg.style.color = 'var(--danger)';
-    msg.textContent = '⚠ パスワードは8文字以上で入力してください';
+    msg.textContent = '⚠ パスワードは5文字以上で入力してください';
   } else if (cnf && nw !== cnf) {
     msg.style.color = 'var(--danger)';
     msg.textContent = '⚠ パスワードが一致しません';
@@ -2902,20 +2928,64 @@ function checkProfPw() {
   }
 }
 
-function saveProfile() {
+async function saveProfile() {
   const pwNew   = document.getElementById('prof-pw-new')?.value || '';
-  const pwCur   = document.getElementById('prof-pw-cur')?.value || '';
   const pwConf  = document.getElementById('prof-pw-confirm')?.value || '';
+  const newTeam = document.getElementById('prof-team')?.value || fbUser.team;
 
-  // パスワード変更のバリデーション
   if (pwNew) {
-    if (!pwCur) { showToast('⚠️ 現在のパスワードを入力してください'); return; }
-    if (pwNew.length < 8) { showToast('⚠️ 新しいパスワードは8文字以上'); return; }
+    if (pwNew.length < 5) { showToast('⚠️ 新しいパスワードは5文字以上'); return; }
     if (pwNew !== pwConf) { showToast('⚠️ パスワードが一致しません'); return; }
   }
 
-  closeModal();
-  showToast(pwNew ? '✓ パスワードを変更しました（モック）' : '✓ プロフィールを保存しました');
+  const btn = document.getElementById('prof-save-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '保存中...'; }
+
+  try {
+    if (pwNew) {
+      await fbAuth.currentUser.updatePassword(pwNew + AUTH_PW_SUFFIX);
+      // ルール上、本人による更新は単一フィールドのみ許可されているため単独更新
+      await fbDb.collection('users').doc(fbUser.code).update({ passwordChanged: true });
+      fbUser.passwordChanged = true;
+    }
+
+    if (newTeam !== fbUser.team) {
+      const oldTeam = fbUser.team;
+      await fbDb.collection('users').doc(fbUser.code).update({ team: newTeam });
+      fbUser.team = newTeam;
+      // 班チャンネルのdocID=teamIdのため、旧班のチャンネルを開いたままだと
+      // channelVisible()の判定が本人の新teamとズレて権限エラーになる。全体連絡へ退避する。
+      if (currentChannel === oldTeam) {
+        switchCh('general', '全体連絡');
+      }
+      refreshUserMenuHeader();
+    }
+
+    closeModal();
+    showToast('✓ プロフィールを保存しました');
+  } catch (err) {
+    if (err.code === 'auth/requires-recent-login') {
+      showToast('セキュリティのため、再度ログインしてから変更してください');
+      await fbAuth.signOut();
+      return;
+    }
+    showToast('⚠️ 保存に失敗しました（' + (err.code || err.message) + '）');
+    if (btn) { btn.disabled = false; btn.textContent = '保存する'; }
+  }
+}
+
+// ヘッダー/ユーザーメニューの氏名・所属班・コード表示をfbUserの実データで更新する
+function refreshUserMenuHeader() {
+  if (!fbUser) return;
+  const initial = (fbUser.name || '?')[0];
+  const nameEl = document.getElementById('um-name');
+  const metaEl = document.getElementById('um-meta');
+  const avatarIconEl = document.getElementById('um-avatar-icon');
+  const avatarTextEl = document.getElementById('avatar-text');
+  if (nameEl) nameEl.textContent = fbUser.name || '';
+  if (metaEl) metaEl.textContent = `${getTeamLabel(fbUser.team)} · ${fbUser.code}`;
+  if (avatarIconEl) avatarIconEl.textContent = initial;
+  if (avatarTextEl) avatarTextEl.textContent = initial;
 }
 
 function openNotifSettings() {
@@ -3039,10 +3109,11 @@ function setRole(role) {
   if (btn) btn.classList.toggle('active', role === 'manager');
   if (lbl) lbl.textContent = role === 'manager' ? '管理者 ON' : '管理者';
 
-  // ユーザーメニューのアバターは常にドライバー情報（南野）を表示
-  // ※管理者モードでも「誰がユーザー管理項目を表示するかはFirestoreのroleで決まる）
+  // 乗務員マスタ・班編成管理の表示可否はFirestoreのroleで決まる
   const userMgmtBtn = document.getElementById('um-user-mgmt-btn');
   if (userMgmtBtn) userMgmtBtn.classList.toggle('hidden', role !== 'manager');
+  const teamMgmtBtn = document.getElementById('um-team-mgmt-btn');
+  if (teamMgmtBtn) teamMgmtBtn.classList.toggle('hidden', role !== 'manager');
 
   // メニュー内のチェックマーク切替（role-menu無効化に伴い要素が存在しない場合はスキップ）
   const chkDriver  = document.getElementById('role-check-driver');
@@ -6954,6 +7025,9 @@ function showLoginScreen() {
   kytCompletionsCache = {};
   kytMyCompletions = {};
   kytExpandedCode = null;
+  // teams関連のリスナーも同様に必ずdetach(teams配列自体はフォールバック値のまま保持してよい)
+  if (teamsUnsub) { teamsUnsub(); teamsUnsub = null; }
+  teamsLoaded = false;
   document.getElementById('app').style.display = 'none';
   document.getElementById('login-screen').style.display = 'flex';
   document.getElementById('login-password').value = '';
@@ -6964,101 +7038,27 @@ function showAppScreen() {
   document.getElementById('app').style.display = '';
 }
 
-/* ===== 初回パスワード変更モーダル ===== */
+/* ===== 乗務員マスタ（管理者のみ） =====
+   役割変更・新規登録・編集・削除を1画面に統合(いずれも同じumAllUsers一覧・同じ管理者権限境界を共有するため)。
+   AAAAA/BBBBB/CCCCC(メンテナンス用管理者コード)はこの画面の影響を一切受けない(一覧からも除外)。
+   新規登録はFirestoreドキュメントの作成のみ。Authアカウントは別途(CSV一括投入 or 手動)対応が必要。 */
 
-function openPasswordChangeModal() {
-  openModal(`
-    <div class="modal-card">
-      <div class="modal-header">
-        <div class="modal-title">🔑 パスワード変更のお願い</div>
-      </div>
-      <div class="modal-body">
-        <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px;line-height:1.6">
-          初期パスワードのままです。セキュリティのため、新しいパスワードへの変更をお願いします。
-        </p>
-        <div id="pw-change-error" class="login-error" style="display:none"></div>
-        <div class="login-field">
-          <label for="pw-new1">新しいパスワード</label>
-          <input id="pw-new1" type="password" autocomplete="new-password" minlength="6" placeholder="6文字以上の半角英数字">
-        </div>
-        <div class="login-field">
-          <label for="pw-new2">新しいパスワード（確認）</label>
-          <input id="pw-new2" type="password" autocomplete="new-password" minlength="6" placeholder="もう一度入力してください">
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-ghost" style="flex:1" onclick="skipPasswordChange()">あとで</button>
-        <button id="pw-change-btn" class="btn btn-primary" style="flex:1" onclick="submitPasswordChange()">変更する</button>
-      </div>
-    </div>
-  `);
-}
+const MASTER_EXCLUDED_CODES = ['AAAAA', 'BBBBB', 'CCCCC'];
 
-function showPwChangeError(msg) {
-  const el = document.getElementById('pw-change-error');
-  if (!el) return;
-  el.textContent = msg;
-  el.style.display = msg ? 'block' : 'none';
-}
-
-function skipPasswordChange() {
-  closeModal();
-}
-
-async function submitPasswordChange() {
-  const pw1 = document.getElementById('pw-new1').value;
-  const pw2 = document.getElementById('pw-new2').value;
-  const btn = document.getElementById('pw-change-btn');
-  showPwChangeError('');
-
-  if (pw1.length < 6) {
-    showPwChangeError('6文字以上の半角英数字で入力してください');
-    return;
-  }
-  if (pw1 !== pw2) {
-    showPwChangeError('新しいパスワードが一致しません');
-    return;
-  }
-
-  btn.disabled = true;
-  btn.textContent = '変更中...';
-  try {
-    await fbAuth.currentUser.updatePassword(pw1 + AUTH_PW_SUFFIX);
-
-    // ルール上、本人による更新は passwordChanged フィールドのみ許可されているため単独更新
-    await fbDb.collection('users').doc(fbUser.code).update({ passwordChanged: true });
-    fbUser.passwordChanged = true;
-
-    closeModal();
-    showToast('✓ パスワードを変更しました');
-  } catch (err) {
-    if (err.code === 'auth/requires-recent-login') {
-      showPwChangeError('セキュリティのため、再度ログインしてから変更してください');
-      await fbAuth.signOut();
-      return;
-    } else if (err.code === 'auth/weak-password') {
-      showPwChangeError('パスワードが簡単すぎます。別のパスワードにしてください');
-    } else {
-      showPwChangeError('変更に失敗しました（' + (err.code || err.message) + '）');
-    }
-    btn.disabled = false;
-    btn.textContent = '変更する';
-  }
-}
-
-/* ===== ユーザー管理（管理者のみ） ===== */
-
-let umAllUsers = []; // openUserManagement中に取得した全ユーザーのキャッシュ
+let umAllUsers = [];      // openUserManagement中に取得した全ユーザーのキャッシュ(メンテナンス用コード除外済み)
+let umEditingCode = null; // インライン編集フォームを開いている行のコード(同時に1件のみ)
 
 async function openUserManagement() {
   closeUserMenu();
   openModal(`
     <div class="modal-card">
       <div class="modal-header">
-        <div class="modal-title">🗂️ ユーザー管理</div>
+        <div class="modal-title">🗂️ 乗務員マスタ</div>
         <button class="modal-close" onclick="closeModal()">✕</button>
       </div>
       <div class="modal-body">
+        <button class="btn btn-ghost" style="width:100%;margin-bottom:10px" onclick="toggleDriverCreateForm()">+ 新規登録</button>
+        <div id="um-create-form" class="hidden" style="background:var(--surface2);border-radius:8px;padding:12px;margin-bottom:12px"></div>
         <div class="login-field" style="margin-bottom:12px">
           <input id="um-search" type="text" placeholder="コード・氏名で検索"
                  oninput="renderUserManagementList()"
@@ -7073,11 +7073,94 @@ async function openUserManagement() {
   try {
     const snap = await fbDb.collection('users').get();
     umAllUsers = [];
-    snap.forEach(doc => umAllUsers.push({ code: doc.id, ...doc.data() }));
+    umEditingCode = null;
+    snap.forEach(doc => {
+      if (MASTER_EXCLUDED_CODES.includes(doc.id)) return;
+      umAllUsers.push({ code: doc.id, ...doc.data() });
+    });
     renderUserManagementList();
   } catch (err) {
     const list = document.getElementById('um-list');
     if (list) list.innerHTML = `<p style="font-size:13px;color:var(--danger)">読み込みに失敗しました（${err.code || err.message}）</p>`;
+  }
+}
+
+// 所属班の<select>選択肢を生成。includeUnassignedがtrueなら「未設定」(team:null)も選択肢に含める
+// (一般ユーザーのプロフィール自己変更側では未設定を選ばせない=team自己更新ルールがnullを許可しないため)
+function teamSelectOptions(selectedId, includeUnassigned) {
+  const opts = teams.filter(t => t.id !== 'all').map(t =>
+    `<option value="${t.id}" ${t.id === selectedId ? 'selected' : ''}>${escHtml(t.displayName)}</option>`
+  );
+  if (includeUnassigned) {
+    opts.unshift(`<option value="" ${!selectedId ? 'selected' : ''}>未設定</option>`);
+  }
+  return opts.join('');
+}
+
+function toggleDriverCreateForm() {
+  const el = document.getElementById('um-create-form');
+  if (!el) return;
+  const willShow = el.classList.contains('hidden');
+  if (willShow) {
+    el.innerHTML = `
+      <div class="form-group">
+        <label class="form-label">乗務員コード（5桁）</label>
+        <input id="um-new-code" class="input-field" maxlength="5" placeholder="例: 10234">
+      </div>
+      <div class="form-group">
+        <label class="form-label">氏名</label>
+        <input id="um-new-name" class="input-field" placeholder="氏名">
+      </div>
+      <div class="form-group">
+        <label class="form-label">所属班</label>
+        <select id="um-new-team" class="input-field">${teamSelectOptions(null, true)}</select>
+      </div>
+      <p style="font-size:11px;color:var(--text-muted);margin-bottom:10px">
+        ⚠️ Authアカウントは別途作成が必要です。この登録だけではログインできません(CSV一括投入または手動対応)。
+      </p>
+      <button class="btn btn-primary" style="width:100%" onclick="submitDriverCreate()">登録する</button>
+    `;
+  }
+  el.classList.toggle('hidden', !willShow);
+}
+
+async function submitDriverCreate() {
+  const code = (document.getElementById('um-new-code').value || '').trim().toUpperCase();
+  const name = (document.getElementById('um-new-name').value || '').trim();
+  const team = document.getElementById('um-new-team').value || null;
+  const errEl = document.getElementById('um-error');
+  errEl.style.display = 'none';
+
+  if (!/^[A-Z0-9]{5}$/.test(code)) {
+    errEl.textContent = '乗務員コードは5桁の半角英数字で入力してください';
+    errEl.style.display = 'block';
+    return;
+  }
+  if (MASTER_EXCLUDED_CODES.includes(code)) {
+    errEl.textContent = 'このコードは登録できません（メンテナンス用予約コード）';
+    errEl.style.display = 'block';
+    return;
+  }
+  if (!name) {
+    errEl.textContent = '氏名を入力してください';
+    errEl.style.display = 'block';
+    return;
+  }
+  if (umAllUsers.some(u => u.code === code)) {
+    errEl.textContent = 'このコードは既に登録されています。編集から変更してください';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  try {
+    await fbDb.collection('users').doc(code).set({ name, role: 'driver', team, passwordChanged: false });
+    umAllUsers.push({ code, name, role: 'driver', team, passwordChanged: false });
+    document.getElementById('um-create-form').classList.add('hidden');
+    renderUserManagementList();
+    showToast(`✓ ${name}（${code}）を登録しました`);
+  } catch (err) {
+    errEl.textContent = `登録に失敗しました（${err.code || err.message}）`;
+    errEl.style.display = 'block';
   }
 }
 
@@ -7096,12 +7179,13 @@ function renderUserManagementList() {
 
   listEl.innerHTML = filtered.map(u => {
     const isSelf = u.code === fbUser.code;
+    const isEditing = umEditingCode === u.code;
     return `
       <div class="card" style="margin-bottom:8px;padding:12px">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
           <div style="min-width:0">
-            <div style="font-weight:700;color:var(--navy)">${u.name || '(氏名未設定)'} <span style="font-size:11px;color:var(--text-muted);font-weight:400">${u.code}</span></div>
-            <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${u.team || '—'}</div>
+            <div style="font-weight:700;color:var(--navy)">${escHtml(u.name || '(氏名未設定)')} <span style="font-size:11px;color:var(--text-muted);font-weight:400">${u.code}</span></div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${escHtml(getTeamLabel(u.team))}</div>
           </div>
           <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
             <select id="um-role-${u.code}" ${isSelf ? 'disabled' : ''}
@@ -7115,9 +7199,77 @@ function renderUserManagementList() {
           </div>
         </div>
         ${isSelf ? '<div style="font-size:11px;color:var(--text-muted);margin-top:6px">ご自身の権限は変更できません</div>' : ''}
+        <div style="display:flex;gap:6px;margin-top:8px">
+          <button class="btn btn-ghost" style="flex:1;padding:6px;font-size:12px" onclick="toggleDriverEditForm('${u.code}')">${isEditing ? '編集を閉じる' : '編集'}</button>
+          <button class="btn btn-ghost" style="flex:1;padding:6px;font-size:12px;color:var(--danger)" ${isSelf ? 'disabled' : ''} onclick="deleteDriver('${u.code}')">削除</button>
+        </div>
+        ${isEditing ? `
+          <div style="background:var(--surface2);border-radius:8px;padding:10px;margin-top:8px">
+            <div class="form-group">
+              <label class="form-label">氏名</label>
+              <input id="um-edit-name-${u.code}" class="input-field" value="${escHtml(u.name || '')}">
+            </div>
+            <div class="form-group" style="margin-bottom:8px">
+              <label class="form-label">所属班</label>
+              <select id="um-edit-team-${u.code}" class="input-field">${teamSelectOptions(u.team, true)}</select>
+            </div>
+            <button class="btn btn-primary" style="width:100%" onclick="updateDriverInfo('${u.code}')">保存する</button>
+          </div>
+        ` : ''}
       </div>
     `;
   }).join('');
+}
+
+function toggleDriverEditForm(code) {
+  umEditingCode = umEditingCode === code ? null : code;
+  renderUserManagementList();
+}
+
+async function updateDriverInfo(code) {
+  const name = (document.getElementById(`um-edit-name-${code}`).value || '').trim();
+  const team = document.getElementById(`um-edit-team-${code}`).value || null;
+  const target = umAllUsers.find(u => u.code === code);
+  if (!target) return;
+  const errEl = document.getElementById('um-error');
+  errEl.style.display = 'none';
+  if (!name) {
+    errEl.textContent = '氏名を入力してください';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  try {
+    await fbDb.collection('users').doc(code).update({ name, team });
+    target.name = name;
+    target.team = team;
+    umEditingCode = null;
+    renderUserManagementList();
+    showToast(`✓ ${name}（${code}）を更新しました`);
+  } catch (err) {
+    errEl.textContent = `更新に失敗しました（${err.code || err.message}）`;
+    errEl.style.display = 'block';
+  }
+}
+
+// usersドキュメントを削除する(退職対応)。Authアカウントは削除されないが、
+// 次回ログイン試行時に認証ゲート(users doc不在チェック)で自動的にブロックされる
+async function deleteDriver(code) {
+  const target = umAllUsers.find(u => u.code === code);
+  if (!target) return;
+  if (!confirm(`${target.name}（${code}）を削除しますか？\n※ Authアカウントは削除されません。次回ログイン試行時にブロックされます。`)) return;
+
+  const errEl = document.getElementById('um-error');
+  errEl.style.display = 'none';
+  try {
+    await fbDb.collection('users').doc(code).delete();
+    umAllUsers = umAllUsers.filter(u => u.code !== code);
+    renderUserManagementList();
+    showToast(`✓ ${target.name}（${code}）を削除しました`);
+  } catch (err) {
+    errEl.textContent = `削除に失敗しました（${err.code || err.message}）`;
+    errEl.style.display = 'block';
+  }
 }
 
 async function changeUserRole(code) {
@@ -7144,6 +7296,79 @@ async function changeUserRole(code) {
     renderUserManagementList();
   } catch (err) {
     errEl.textContent = `変更に失敗しました（${err.code || err.message}）`;
+    errEl.style.display = 'block';
+  }
+}
+
+/* ===== 班編成管理（管理者のみ） =====
+   teamsは既にattachTeamsListener()による生きたミラーなので、個別フェッチ不要。
+   保存後はonSnapshotで自動的に全画面(チャット・プロフィール・この画面自身)へ反映される。
+   team_a〜team_hは班長名(leaderName)を、team_i(安全指導班)は個人班長を持たないため呼称(label)を直接編集する。 */
+
+function openTeamManagement() {
+  closeUserMenu();
+  openModal(`
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title">🚚 班編成管理</div>
+        <button class="modal-close" onclick="closeModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="tm-error" class="login-error" style="display:none"></div>
+        <div id="tm-list">${renderTeamManagementList()}</div>
+      </div>
+    </div>
+  `);
+}
+
+function renderTeamManagementList() {
+  if (!teamsLoaded) return `<p style="font-size:13px;color:var(--text-muted)">読み込み中...</p>`;
+  const rows = teams.filter(t => t.id !== 'all');
+  if (rows.length === 0) return `<p style="font-size:13px;color:var(--text-muted)">班データがありません</p>`;
+
+  return rows.map(t => {
+    const isFunctionalTeam = t.id === 'team_i'; // 個人班長を持たない機能班
+    return `
+      <div class="card" style="margin-bottom:8px;padding:12px">
+        <div style="font-weight:700;color:var(--navy);margin-bottom:8px">${escHtml(t.code)}班 — 現在: ${escHtml(t.displayName || t.label || '')}</div>
+        <div class="form-group" style="margin-bottom:8px">
+          <label class="form-label">${isFunctionalTeam ? '呼称' : '班長名'}</label>
+          <input id="tm-input-${t.id}" class="input-field" value="${escHtml(isFunctionalTeam ? (t.label || '') : (t.leaderName || ''))}"
+                 placeholder="${isFunctionalTeam ? '例: 安全指導班' : '例: 中尾'}">
+        </div>
+        <button class="btn btn-primary" style="width:100%" onclick="saveTeamEdit('${t.id}')">保存する</button>
+      </div>
+    `;
+  }).join('');
+}
+
+async function saveTeamEdit(teamId) {
+  const team = teams.find(t => t.id === teamId);
+  const input = document.getElementById(`tm-input-${teamId}`);
+  if (!team || !input) return;
+  const value = input.value.trim();
+  const errEl = document.getElementById('tm-error');
+  errEl.style.display = 'none';
+
+  if (!value) {
+    errEl.textContent = '空欄では保存できません';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  // seed-teams.js と同じ計算式で label/displayName を再構成する(以後の乖離を防ぐ)
+  const isFunctionalTeam = teamId === 'team_i';
+  const leaderName = isFunctionalTeam ? null : value;
+  const label = isFunctionalTeam ? value : `${value}班`;
+  const displayName = `${team.code}班（${label}）`;
+
+  try {
+    await fbDb.collection('teams').doc(teamId).update({ leaderName, label, displayName });
+    showToast(`✓ ${team.code}班の表示を更新しました`);
+    // teamsローカル配列はonSnapshotで追って更新されるが、モーダルは即時反映のため明示的に再描画
+    document.getElementById('tm-list').innerHTML = renderTeamManagementList();
+  } catch (err) {
+    errEl.textContent = `保存に失敗しました（${err.code || err.message}）`;
     errEl.style.display = 'block';
   }
 }
@@ -7181,6 +7406,10 @@ fbAuth.onAuthStateChanged(async (user) => {
     // KYT(シナリオ本体)も同様に全ロール共通でログイン時から購読を開始する
     attachKytScenariosListener();
 
+    // teams(9班マスター)も同様に全ロール共通でログイン時から購読を開始する
+    attachTeamsListener();
+    refreshUserMenuHeader();
+
     showAppScreen();
 
     // ログイン成功時にチャットチャンネル(既定: general)のリスナーを開始
@@ -7188,10 +7417,6 @@ fbAuth.onAuthStateChanged(async (user) => {
     document.getElementById('ch-title').textContent = '全体連絡';
     attachChannelListener(currentChannel);
     renderChannelChips();
-
-    if (fbUser.passwordChanged === false) {
-      openPasswordChangeModal();
-    }
   } catch (err) {
     console.error('認証後のユーザー情報取得に失敗:', err);
     await fbAuth.signOut();
