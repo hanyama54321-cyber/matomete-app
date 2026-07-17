@@ -55,8 +55,18 @@ service cloud.firestore {
     }
 
     match /announcements/{id} {
+      // 閲覧はログイン済み全員(予約配信の非表示制御はクライアント側で行う)。
+      // 作成・更新・削除はadminのみ(manuals/kytと同型、物理削除許可)
       allow read: if isSignedIn();
       allow create, update, delete: if isAdmin();
+
+      // 既読・必読確認記録は本人のみ作成・更新可(ドキュメントID=乗務員コード)。
+      // manuals/reads と同じ分離パターン(announcements本体はadmin限定更新のため)。
+      match /reads/{code} {
+        allow read: if isSignedIn();
+        allow create, update: if isSignedIn() && code == myCode();
+        allow delete: if isAdmin();
+      }
     }
 
     // 班マスター(9班体制)。読み取りは全認証ユーザー、書き込みはadminのみ

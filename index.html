@@ -2527,8 +2527,10 @@ const annCategories = [
   { id:'other',   label:'その他', color:'var(--text-sub)' },
 ];
 
-// お知らせデータ（拡張版）
-const announcements = [
+// お知らせ 初期表示用モックデータ(id は数値。実データ(Firestore, id=文字列)と混在表示し、
+// 編集・削除は不可の読み取り専用アセットとして維持する。既読・リアクション操作は
+// 従来どおりローカル配列のmutateのみで完結し、Firestoreへは書き込まない)
+const MOCK_ANNOUNCEMENTS = [
   {
     id:1,
     from:"本部・安全管理部",
@@ -2663,6 +2665,27 @@ const announcements = [
   },
 ];
 
+/* ===== 周知(お知らせ) =====
+   Firestore スキーマ:
+     - announcements/{id}         …メタデータ(title/body/category/priority/target/pinned/mustRead/
+                                     readDeadline/tags/status/scheduledAt/authorUid/authorName/
+                                     createdAt/updatedAt/publishedAt)
+     - announcements/{id}/reads/{code} …既読・必読確認記録(本人のみ作成・更新可)
+   announcements はログイン時に attachAnnouncementsListener() で全件onSnapshotし、
+   MOCK_ANNOUNCEMENTS(id=数値、読み取り専用の初期表示アセット)と連結したものを保持する。
+   id の型で実データ(文字列)/モック(数値)を判別し、操作系関数(既読・編集・削除等)を出し分ける。
+   予約配信(status:'scheduled')の実データは一般ユーザーには一覧・詳細とも非表示にする(rules上は
+   読めるが、クライアント側の描画で制御する)。自動公開(scheduledAt到来時のCloud Functions等)は
+   実装せず、公開は管理者の「今すぐ配信」操作のみで行う。 */
+let announcements = [...MOCK_ANNOUNCEMENTS]; // Firestoreミラー + モックの連結後配列
+let announcementsUnsub = null;               // announcementsコレクションリスナーのunsubscribe
+let announcementsInitialLoadDone = false;    // 初回スナップショット判定(通知の誤発火防止)
+let annReadsUnsub = null;                    // 詳細画面で開いているお知らせのreadsリスナーのunsubscribe
+let annCurrentReads = {};                    // 詳細画面で購読中のreads一覧 { [code]: {code,name,readAt,acked,ackedAt} }
+let annAllDrivers = [];                      // 管理者向け既読率計算用の全ドライバーキャッシュ
+let annReachCache = {};                      // { [id]: {readCount} } 一覧表示用のone-shotキャッシュ
+let myAnnAcks = {};                          // 自分のreads記録一括キャッシュ { [id]: {acked,readAt,...} }(mustReadバッジ・既読判定用)
+
 /* ===== マニュアル(手順書) =====
    Firestore スキーマ:
      - manuals/{manualId}         …メタデータ(title/description/category/icon/fileUrl等)
@@ -2786,6 +2809,7 @@ const st = {
   kytSel: new Set(),
   kytDone: false,
   editingAnnId: null,
+  annDetailId: null,       // 周知：詳細表示中のID(readsリスナー再描画の対象判定用)
   edTags: [],              // エディタ内のタグ
 };
 
@@ -2796,19 +2820,115 @@ const getCat   = id => annCategories.find(c => c.id === id) || annCategories[4];
 const getTeam  = id => teams.find(t => t.id === id) || teams[0];
 const getUser  = id => users.find(u => u.id === id);
 
-// 対象グループに属するドライバーを取得
+// 対象グループに属するドライバーを取得（モックお知らせ専用。実データはannAllDriversを使う）
 function getTargetDrivers(targetId) {
   const drivers = users.filter(u => u.role === 'driver');
   if (targetId === 'all') return drivers;
   return drivers.filter(u => u.team === targetId);
 }
 
-// 到達率を計算
+// announcements配列からidで検索する（モック=数値id・実データ=Firestore文字列idの両方に対応するため文字列化して比較）
+function findAnn(id) {
+  return announcements.find(x => String(x.id) === String(id));
+}
+
+// 到達率を計算（モックはローカルreadBy配列、実データはannReachCacheのone-shot件数を使う）
 function calcReach(ann) {
-  const targets = getTargetDrivers(ann.target);
-  const readCount = targets.filter(u => ann.readBy.includes(u.id)).length;
-  const pct = targets.length === 0 ? 0 : Math.round(readCount / targets.length * 100);
-  return { targets, readCount, total: targets.length, pct };
+  if (typeof ann.id === 'number') {
+    const targets = getTargetDrivers(ann.target);
+    const readCount = targets.filter(u => ann.readBy.includes(u.id)).length;
+    const pct = targets.length === 0 ? 0 : Math.round(readCount / targets.length * 100);
+    return { targets, readCount, total: targets.length, pct };
+  }
+  const total = annAllDrivers.length;
+  const cached = annReachCache[ann.id];
+  const readCount = cached ? cached.readCount : 0;
+  const pct = total === 0 ? 0 : Math.round(readCount / total * 100);
+  return { targets: annAllDrivers, readCount, total, pct };
+}
+
+// モックお知らせの既読状況（従来ロジックそのまま。CSV出力等の統一インターフェース用にackedも付与）
+function getAnnReadStatusMock(a) {
+  const reach = calcReach(a);
+  const readUsers = reach.targets.filter(u => a.readBy.includes(u.id)).map(u => Object.assign({}, u, { acked: a.ackedBy.includes(u.id) }));
+  const unreadUsers = reach.targets.filter(u => !a.readBy.includes(u.id)).map(u => Object.assign({}, u, { acked: false }));
+  return { reach, readUsers, unreadUsers, ackedCount: a.ackedBy.length };
+}
+
+// annAllDrivers + readsMap(code -> {acked,readAt,...}) から統一形式の既読状況を組み立てる（実データ用）
+function buildAnnReadStatus(readsMap) {
+  const total = annAllDrivers.length;
+  const readUsers   = annAllDrivers.filter(u => readsMap[u.code]).map(u => ({ id: u.code, name: u.name, team: u.team, driverNo: u.code, acked: !!readsMap[u.code].acked }));
+  const unreadUsers = annAllDrivers.filter(u => !readsMap[u.code]).map(u => ({ id: u.code, name: u.name, team: u.team, driverNo: u.code, acked: false }));
+  const readCount = readUsers.length;
+  const pct = total === 0 ? 0 : Math.round(readCount / total * 100);
+  const ackedCount = Object.values(readsMap).filter(r => r.acked).length;
+  return { reach: { targets: annAllDrivers, readCount, total, pct }, readUsers, unreadUsers, ackedCount };
+}
+
+// 実データ用: readsサブコレクションをone-shot取得して既読状況を組み立てる(showReach/showReachPublic/CSV用。常時リスナーは張らない)
+async function fetchAnnReadStatus(id) {
+  if (annAllDrivers.length === 0) await fetchAnnAllDrivers();
+  const snap = await fbDb.collection('announcements').doc(id).collection('reads').get();
+  const readsMap = {};
+  snap.forEach(d => { readsMap[d.id] = d.data(); });
+  return buildAnnReadStatus(readsMap);
+}
+
+// 管理者向け既読率計算用の全ドライバーキャッシュを取得(manuals/fetchManualsAllDriversと同型)
+async function fetchAnnAllDrivers() {
+  try {
+    const snap = await fbDb.collection('users').where('role', '==', 'driver').get();
+    annAllDrivers = snap.docs.map(d => ({ code: d.id, ...d.data() }));
+  } catch (e) { console.error('ドライバー一覧取得エラー:', e); }
+}
+
+// 一覧表示の到達率バッジ用キャッシュを更新する(実データのみ、one-shotでlistener常設を避ける)
+async function refreshAnnReachCache() {
+  const realItems = announcements.filter(a => typeof a.id !== 'number');
+  await Promise.all(realItems.map(a =>
+    fbDb.collection('announcements').doc(a.id).collection('reads').get()
+      .then(snap => { annReachCache[a.id] = { readCount: snap.size }; })
+      .catch(e => console.error('お知らせ既読数取得エラー:', a.id, e))
+  ));
+}
+
+// 自分のannouncements既読/必読確認状況を一括取得(list表示のmust-readバッジ・既読ドット判定用)。
+// コレクショングループクエリではなく、実データ件数分の直接doc getで済ませる(索引不要・件数も小さい前提)
+async function fetchMyAnnAcks() {
+  if (!fbUser) return;
+  const realItems = announcements.filter(a => typeof a.id !== 'number');
+  const results = await Promise.all(realItems.map(a =>
+    fbDb.collection('announcements').doc(a.id).collection('reads').doc(fbUser.code).get()
+      .then(doc => [a.id, doc.exists ? doc.data() : null])
+      .catch(() => [a.id, null])
+  ));
+  myAnnAcks = {};
+  results.forEach(([id, data]) => { if (data) myAnnAcks[id] = data; });
+}
+
+// 実データお知らせの既読判定(readsドキュメントの有無=既読)。モックはa.readのまま
+function annIsRead(a) {
+  if (typeof a.id === 'number') return a.read;
+  return !!myAnnAcks[a.id];
+}
+
+// 一覧・詳細に表示する相対時刻。モックは事前計算済み文字列、実データはcreatedAtから算出する。
+// serverTimestamp()のlatency compensationで投稿直後はcreatedAtがnullになるため「たった今」にフォールバックする
+function annTimeLabel(a) {
+  if (typeof a.id === 'number') return a.time;
+  return fmtRelativeTime(a.createdAt);
+}
+
+function fmtRelativeTime(ts) {
+  if (!ts || typeof ts.toDate !== 'function') return 'たった今';
+  const d = ts.toDate();
+  const diffMs = Date.now() - d.getTime();
+  if (diffMs < 60 * 1000) return 'たった今';
+  if (diffMs < 60 * 60 * 1000) return `${Math.floor(diffMs / 60000)}分前`;
+  if (diffMs < 24 * 60 * 60 * 1000) return `${Math.floor(diffMs / 3600000)}時間前`;
+  if (diffMs < 7 * 24 * 60 * 60 * 1000) return `${Math.floor(diffMs / 86400000)}日前`;
+  return `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
 }
 
 const priorityMap = {
@@ -3176,6 +3296,7 @@ function switchTab(id, btn) {
   document.getElementById('tab-'+id).classList.add('active');
   btn.classList.add('active');
   document.getElementById('main').scrollTop = 0;
+  if (id === 'announcements') { renderAnn(); }
   if (id === 'chat')     { renderChatTab(); scrollChatBot(); }
   if (id === 'kyt')      { renderKytTab(); }
   if (id === 'manuals')  { renderManTab(); }
@@ -3235,10 +3356,11 @@ function deadlineInfo(iso) {
   return { text, level };
 }
 
-// 必読・期限切れ判定
+// 必読・期限切れ判定(モックはローカルackedBy、実データはmyAnnAcksキャッシュを使う)
 function isMustReadPending(a) {
   if (!a.mustRead) return false;
-  return !a.ackedBy.includes(st.currentUid);
+  if (typeof a.id === 'number') return !a.ackedBy.includes(st.currentUid);
+  return !(myAnnAcks[a.id] && myAnnAcks[a.id].acked);
 }
 
 // 検索キーワードでフィルタ
@@ -3269,10 +3391,12 @@ function highlight(text, q) {
 // お知らせのHTML生成（1件分）
 function renderAnnCard(a, opts={}) {
   const isManager = st.role === 'manager';
+  const isReal = typeof a.id !== 'number'; // 実データ(Firestore, id=文字列)のみ編集・削除・配信操作可
   const cat = getCat(a.category);
   const team = getTeam(a.target);
   const reach = calcReach(a);
   const isScheduled = a.status === 'scheduled';
+  const isRead = annIsRead(a);
   const q = opts.q || '';
 
   // 必読まだ確認していない
@@ -3282,7 +3406,7 @@ function renderAnnCard(a, opts={}) {
   const cardClasses = [
     'ann-item',
     a.pinned ? 'pinned' : '',
-    a.read && !isManager && !isScheduled && !mustPending ? 'read' : '',
+    isRead && !isManager && !isScheduled && !mustPending ? 'read' : '',
     isScheduled ? 'scheduled' : '',
     mustPending ? 'must-read-pending' : '',
   ].filter(Boolean).join(' ');
@@ -3292,27 +3416,27 @@ function renderAnnCard(a, opts={}) {
 
   return `
   <div class="${cardClasses}">
-    <div onclick="showAnn(${a.id})" style="cursor:pointer">
+    <div onclick="showAnn('${a.id}')" style="cursor:pointer">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
         <div style="flex:1;min-width:0">
           <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap">
             ${a.pinned ? mkTag('📌','var(--primary)') : ''}
             ${a.mustRead ? '<span class="must-read-badge">✋ 必読</span>' : ''}
             ${isScheduled ? `<span class="scheduled-badge">⏰ ${fmtSchedDate(a.scheduledAt)} 配信予定</span>` : ''}
-            ${!a.read && !isManager && !isScheduled && !mustPending ? '<span style="width:8px;height:8px;border-radius:50%;background:var(--primary);display:inline-block;flex-shrink:0"></span>' : ''}
+            ${!isRead && !isManager && !isScheduled && !mustPending ? '<span style="width:8px;height:8px;border-radius:50%;background:var(--primary);display:inline-block;flex-shrink:0"></span>' : ''}
             ${mkTag(cat.label, cat.color)}
             ${isManager && a.priority==='high' ? mkTag('🔴 重要','var(--danger)') : ''}
             ${isManager ? mkTag('対象: '+team.label, 'var(--text-sub)') : ''}
-            <span style="font-size:12px;color:var(--text-muted)">${a.from}</span>
+            <span style="font-size:12px;color:var(--text-muted)">${escHtml(a.from)}</span>
           </div>
-          <div style="font-weight:${a.read && !isManager && !mustPending?500:700};font-size:16px;margin-bottom:4px;color:var(--navy);line-height:1.5">${titleHtml}</div>
+          <div style="font-weight:${isRead && !isManager && !mustPending?500:700};font-size:16px;margin-bottom:4px;color:var(--navy);line-height:1.5">${titleHtml}</div>
           <div style="font-size:14px;color:var(--text-sub);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${bodyHtml}</div>
           ${dl ? `<div class="deadline-text ${dl.level}" style="margin-top:6px"><span>⏱️</span>${dl.text}</div>` : ''}
           ${(a.tags||[]).length ? `<div style="display:flex;gap:5px;margin-top:8px;flex-wrap:wrap">
             ${a.tags.map(t => `<button class="tag-pill${st.annTagFilter===t?' active':''}" onclick="event.stopPropagation();setTagFilter('${t.replace(/'/g,"\\'")}')">${t}</button>`).join('')}
           </div>` : ''}
         </div>
-        <div style="font-size:12px;color:var(--text-muted);white-space:nowrap">${a.time}</div>
+        <div style="font-size:12px;color:var(--text-muted);white-space:nowrap">${annTimeLabel(a)}</div>
       </div>
     </div>
     <div class="ann-actions">
@@ -3321,27 +3445,31 @@ function renderAnnCard(a, opts={}) {
           <div class="reach-mini" style="background:rgba(124,58,237,.08);color:#6D28D9">
             <span>⏰</span><span>配信待ち</span>
           </div>
-          <button class="ann-action-btn primary" onclick="publishNow(${a.id})">
-            <span>🚀</span>今すぐ配信
-          </button>
-          <button class="ann-action-btn" onclick="openAnnEditor(${a.id})">
-            <span>✏️</span>編集
-          </button>
-          <button class="ann-action-btn danger" onclick="deleteAnn(${a.id})">
-            <span>🗑️</span>
-          </button>
+          ${isReal ? `
+            <button class="ann-action-btn primary" onclick="publishNow('${a.id}')">
+              <span>🚀</span>今すぐ配信
+            </button>
+            <button class="ann-action-btn" onclick="openAnnEditor('${a.id}')">
+              <span>✏️</span>編集
+            </button>
+            <button class="ann-action-btn danger" onclick="deleteAnn('${a.id}')">
+              <span>🗑️</span>
+            </button>
+          ` : ''}
         ` : ''}
       ` : `
-        <button class="reach-mini-btn" onclick="event.stopPropagation();${isManager ? `showReach(${a.id})` : `showReachPublic(${a.id})`}">
+        ${isManager || !isReal ? `
+        <button class="reach-mini-btn" onclick="event.stopPropagation();${isManager ? `showReach('${a.id}')` : `showReachPublic('${a.id}')`}">
           <span>📊</span>
           <span class="reach-pct">${reach.pct}%</span>
           <span style="color:var(--text-muted);font-size:11px">(${reach.readCount}/${reach.total}名既読)</span>
         </button>
-        ${isManager ? `
-          <button class="ann-action-btn" onclick="openAnnEditor(${a.id})">
+        ` : ''}
+        ${isManager && isReal ? `
+          <button class="ann-action-btn" onclick="openAnnEditor('${a.id}')">
             <span>✏️</span>編集
           </button>
-          <button class="ann-action-btn danger" onclick="deleteAnn(${a.id})">
+          <button class="ann-action-btn danger" onclick="deleteAnn('${a.id}')">
             <span>🗑️</span>
           </button>
         ` : ''}
@@ -3371,7 +3499,7 @@ function renderAnn() {
   if (!isManager) items = items.filter(a => a.status === 'published');
 
   // 状態によるフィルタ
-  if (st.annFilter === 'unread') items = items.filter(a => !a.read && a.status === 'published');
+  if (st.annFilter === 'unread') items = items.filter(a => !annIsRead(a) && a.status === 'published');
   if (st.annFilter === 'mustread') items = items.filter(a => a.mustRead && a.status === 'published');
   if (st.annFilter === 'scheduled') items = items.filter(a => a.status === 'scheduled');
 
@@ -3379,11 +3507,17 @@ function renderAnn() {
   items = items.filter(a => matchesSearch(a, q) && matchesTag(a, tagFilter));
 
   // ソート（ピン→公開済→予約）
+  // ソートキー用のミリ秒値を取得(モック=文字列、実データ=Firestore Timestampの両方に対応)
+  const annSortTime = v => {
+    if (!v) return 0;
+    if (typeof v.toDate === 'function') return v.toDate().getTime(); // Firestore Timestamp
+    return new Date(String(v).replace(' ','T')).getTime() || 0;
+  };
   items.sort((a,b) => {
     if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
     if (a.status !== b.status) return a.status === 'scheduled' ? 1 : -1;
-    const ta = new Date((a.publishedAt || a.createdAt || '').replace(' ','T')).getTime() || 0;
-    const tb = new Date((b.publishedAt || b.createdAt || '').replace(' ','T')).getTime() || 0;
+    const ta = annSortTime(a.publishedAt || a.createdAt);
+    const tb = annSortTime(b.publishedAt || b.createdAt);
     return tb - ta;
   });
 
@@ -3522,28 +3656,34 @@ function filterAnn(f, btn) {
 }
 
 function showAnn(id) {
-  const a = announcements.find(x=>x.id===id);
+  const a = findAnn(id);
   if (!a) return;
   const isManager = st.role === 'manager';
-  const cat = getCat(a.category);
-  const team = getTeam(a.target);
-  const reach = calcReach(a);
-  const dl = deadlineInfo(a.readDeadline);
+  const isMock = typeof a.id === 'number';
 
-  // ドライバーモード時は既読フラグを立てる（実機ではFirestore書き込み）
-  if (!isManager && !a.readBy.includes(st.currentUid)) {
-    a.readBy.push(st.currentUid);
-    a.read = true;
+  // 予約配信は一般ユーザーには非表示(一覧だけでなく詳細への直接遷移も防ぐ)
+  if (!isManager && a.status === 'scheduled') return;
+
+  // 既読記録: モックはローカルmutate(st.currentUidのまま、凍結資産として維持)、
+  // 実データはfbUser.codeベースでreadsサブコレクションに書き込む
+  if (isMock) {
+    if (!isManager && !a.readBy.includes(st.currentUid)) {
+      a.readBy.push(st.currentUid);
+      a.read = true;
+    }
+  } else if (!isManager && fbUser) {
+    fbDb.collection('announcements').doc(a.id).collection('reads').doc(fbUser.code).set({
+      code: fbUser.code, name: fbUser.name, readAt: firebase.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true }).then(() => {
+      myAnnAcks[a.id] = Object.assign({}, myAnnAcks[a.id], { code: fbUser.code, name: fbUser.name });
+    }).catch(e => console.error('既読登録エラー:', e));
   }
 
-  // 関連お知らせ（同じタグを持つ別投稿）
-  let related = [];
-  if (a.tags && a.tags.length > 0) {
-    related = announcements.filter(x =>
-      x.id !== a.id &&
-      x.status === 'published' &&
-      x.tags && x.tags.some(t => a.tags.includes(t))
-    );
+  st.annDetailId = id;
+  if (!isMock) {
+    attachAnnReadsListener(a.id); // 実データのみ: readsサブコレクションを購読し、変更のたびに再描画
+  } else if (annReadsUnsub) {
+    annReadsUnsub(); annReadsUnsub = null;
   }
 
   document.getElementById('ann-list').classList.add('hidden');
@@ -3553,10 +3693,37 @@ function showAnn(id) {
   document.querySelector('#tab-announcements .tab-header-actions').classList.add('hidden');
   document.getElementById('admin-banner').classList.add('hidden');
   document.getElementById('ann-new-btn').classList.add('hidden');
+  document.getElementById('ann-detail').classList.remove('hidden');
+
+  renderAnnDetailBody(id);
+}
+
+// showAnnの本体描画部分(副作用なし・純粋関数)。readsリスナーの変更検知のたびに再呼び出しされる
+function renderAnnDetailBody(id) {
+  const a = findAnn(id);
+  if (!a) return;
+  const isManager = st.role === 'manager';
+  const isMock = typeof a.id === 'number';
+  const cat = getCat(a.category);
+  const team = getTeam(a.target);
+  const dl = deadlineInfo(a.readDeadline);
+
+  const status = isMock ? getAnnReadStatusMock(a) : buildAnnReadStatus(annCurrentReads);
+  const { reach, readUsers, unreadUsers, ackedCount } = status;
+
+  // 関連お知らせ（同じタグを持つ別投稿）
+  let related = [];
+  if (a.tags && a.tags.length > 0) {
+    related = announcements.filter(x =>
+      String(x.id) !== String(a.id) &&
+      x.status === 'published' &&
+      x.tags && x.tags.some(t => a.tags.includes(t))
+    );
+  }
 
   const reactions = ['👍 了解','❓ 質問あり','⚠️ 問題あり'];
   const fb = st.annFeedback[id];
-  const acked = a.ackedBy.includes(st.currentUid);
+  const acked = isMock ? a.ackedBy.includes(st.currentUid) : !!(fbUser && annCurrentReads[fbUser.code] && annCurrentReads[fbUser.code].acked);
 
   // 必読確認バナー
   let ackBlock = '';
@@ -3579,7 +3746,7 @@ function showAnn(id) {
             <div style="font-size:11px;opacity:.9;margin-top:2px">内容を確認のうえ、下のボタンを押してください</div>
           </div>
         </div>
-        <button class="ack-btn" style="font-size:15px" onclick="acknowledgeAnn(${id})">
+        <button class="ack-btn" style="font-size:15px" onclick="acknowledgeAnn('${id}')">
           <span>✓</span>内容を確認しました
         </button>`;
     }
@@ -3600,11 +3767,11 @@ function showAnn(id) {
         <span>関連するお知らせ（${related.length}件）</span>
       </div>
       ${related.slice(0,5).map(r => `
-        <div class="related-item" onclick="showAnn(${r.id})">
+        <div class="related-item" onclick="showAnn('${r.id}')">
           <div style="font-size:18px">${getCat(r.category).label === '安全' ? '🛡️' : getCat(r.category).label === '業務' ? '📋' : getCat(r.category).label === '人事' ? '👥' : '📌'}</div>
           <div class="related-item-content">
             <div class="related-item-title">${r.title}</div>
-            <div class="related-item-meta">${r.from} · ${r.time}</div>
+            <div class="related-item-meta">${escHtml(r.from)} · ${annTimeLabel(r)}</div>
           </div>
         </div>
       `).join('')}
@@ -3622,7 +3789,7 @@ function showAnn(id) {
         ${isManager ? mkTag('対象: '+team.label, 'var(--text-sub)') : ''}
       </div>
       <div style="font-size:19px;font-weight:700;color:var(--navy);margin-bottom:8px;line-height:1.5">${a.title}</div>
-      <div style="color:var(--text-sub);font-size:13px;margin-bottom:4px">${a.from} · ${a.time}</div>
+      <div style="color:var(--text-sub);font-size:13px;margin-bottom:4px">${escHtml(a.from)} · ${annTimeLabel(a)}</div>
       ${dl ? `<div class="deadline-text ${dl.level}" style="margin-top:6px"><span>⏱️</span>${dl.text}</div>` : ''}
       ${tagsBlock}
       <div class="divider"></div>
@@ -3635,37 +3802,35 @@ function showAnn(id) {
           <div style="flex:1">
             <div style="font-size:12px;color:var(--text-sub);margin-bottom:2px">この投稿の到達率</div>
             <div style="font-weight:700;font-size:20px;color:var(--navy)">${reach.pct}% <span style="font-size:13px;color:var(--text-sub);font-weight:500">（${reach.readCount}/${reach.total}名既読）</span></div>
-            ${a.mustRead ? `<div style="font-size:11px;color:var(--text-sub);margin-top:4px">✋ 必読確認: ${a.ackedBy.length}/${reach.total}名</div>` : ''}
+            ${a.mustRead ? `<div style="font-size:11px;color:var(--text-sub);margin-top:4px">✋ 必読確認: ${ackedCount}/${reach.total}名</div>` : ''}
           </div>
         </div>
         <div style="display:flex;gap:8px;margin-top:12px">
-          <button class="btn btn-primary" style="flex:1" onclick="showReach(${id})">📊 到達率の詳細</button>
-          <button class="btn btn-ghost" style="flex:1" onclick="openAnnEditor(${id})">✏️ 編集</button>
+          <button class="btn btn-primary" style="flex:1" onclick="showReach('${id}')">📊 到達率の詳細</button>
+          ${isMock ? '' : `<button class="btn btn-ghost" style="flex:1" onclick="openAnnEditor('${id}')">✏️ 編集</button>`}
         </div>
-      ` : (() => {
-        const readUsers   = reach.targets.filter(u => a.readBy.includes(u.id));
-        const unreadUsers = reach.targets.filter(u => !a.readBy.includes(u.id));
-        return `
+      ` : `
         <div class="divider"></div>
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
           <span style="font-size:13px;color:var(--text-sub)">この通知への反応</span>
-          <span style="font-size:13px;font-weight:700;color:var(--navy)">📊 ${reach.pct}%（${reach.readCount}/${reach.total}名既読）</span>
+          ${isMock ? `<span style="font-size:13px;font-weight:700;color:var(--navy)">📊 ${reach.pct}%（${reach.readCount}/${reach.total}名既読）</span>` : ''}
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
           ${reactions.map(r=>`
             <button class="btn btn-ghost" style="flex:1 1 auto;font-size:12px;${fb===r?'background:rgba(26,86,196,.08);color:var(--primary);border-color:var(--primary)':''}"
-              onclick="setAnnFb(${id},'${r}')">
+              onclick="setAnnFb('${id}','${r}')">
               ${r}
             </button>`).join('')}
         </div>
         ${fb ? `<div style="margin-bottom:10px;color:var(--safe);font-size:13px;font-weight:700">✓ フィードバックを送信しました</div>` : ''}
+        ${isMock ? `
         ${readUsers.length > 0 ? `
           <div class="user-list-wrap" style="margin-bottom:8px">
             <div class="user-list-header"><span>✓ 既読（${readUsers.length}名）</span></div>
             ${readUsers.map(u => {
               const reaction = a.reactions[u.id];
               return `<div class="user-row">
-                <div class="msg-av" style="background:linear-gradient(135deg,#0D3D9E,#3F8CEF)">${u.name[0]}</div>
+                <div class="msg-av" style="background:linear-gradient(135deg,#0D3D9E,#3F8CEF)">${(u.name||'?')[0]}</div>
                 <div class="user-info">
                   <div class="user-name">${escHtml(u.name)}${reaction?`<span class="reaction-pill">${reaction}</span>`:''}</div>
                   <div class="user-meta">${escHtml(getTeamLabel(u.team))}</div>
@@ -3680,7 +3845,7 @@ function showAnn(id) {
             <div class="user-list-header"><span>🔴 未読（${unreadUsers.length}名）</span></div>
             ${unreadUsers.map(u => `
               <div class="user-row">
-                <div class="msg-av" style="background:#C0C8D4">${u.name[0]}</div>
+                <div class="msg-av" style="background:#C0C8D4">${(u.name||'?')[0]}</div>
                 <div class="user-info">
                   <div class="user-name">${escHtml(u.name)}</div>
                   <div class="user-meta">${escHtml(getTeamLabel(u.team))}</div>
@@ -3690,17 +3855,47 @@ function showAnn(id) {
             `).join('')}
           </div>
         ` : ''}
-        `;
-      })()}
+        ` : ''}
+      `}
       ${relatedBlock}
     </div>`;
-  document.getElementById('ann-detail').classList.remove('hidden');
+}
+
+// 詳細画面で開いているお知らせのreadsサブコレクションを購読する(実データのみ)
+function attachAnnReadsListener(id) {
+  if (annReadsUnsub) { annReadsUnsub(); annReadsUnsub = null; }
+  annCurrentReads = {};
+  annReadsUnsub = fbDb.collection('announcements').doc(id).collection('reads')
+    .onSnapshot(snap => {
+      annCurrentReads = {};
+      snap.forEach(d => { annCurrentReads[d.id] = d.data(); });
+      const detailEl = document.getElementById('ann-detail');
+      if (!detailEl || detailEl.classList.contains('hidden') || st.annDetailId !== id) return;
+      renderAnnDetailBody(id);
+    }, err => {
+      console.error('お知らせ既読リスナーエラー:', err);
+    });
 }
 
 // 必読を「確認しました」と記録
 function acknowledgeAnn(id) {
-  const a = announcements.find(x => x.id === id);
+  const a = findAnn(id);
   if (!a) return;
+  if (typeof a.id !== 'number') {
+    if (!fbUser) return;
+    fbDb.collection('announcements').doc(a.id).collection('reads').doc(fbUser.code).set({
+      code: fbUser.code, name: fbUser.name,
+      acked: true, ackedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true }).then(() => {
+      myAnnAcks[a.id] = Object.assign({}, myAnnAcks[a.id], { code: fbUser.code, name: fbUser.name, acked: true });
+      setTimeout(() => showToast('✓ 確認を記録しました'), 200);
+      // 開いていればonSnapshotが自動的に再描画する
+    }).catch(e => {
+      console.error('必読確認エラー:', e);
+      showToast('⚠️ 確認の記録に失敗しました（' + (e.code || e.message) + '）');
+    });
+    return;
+  }
   if (!a.ackedBy.includes(st.currentUid)) {
     a.ackedBy.push(st.currentUid);
   }
@@ -3715,6 +3910,8 @@ function goToTagThread(tag) {
 }
 
 function closeAnnDetail() {
+  if (annReadsUnsub) { annReadsUnsub(); annReadsUnsub = null; }
+  st.annDetailId = null;
   document.getElementById('ann-detail').classList.add('hidden');
   document.getElementById('ann-detail').innerHTML = '';
   document.getElementById('ann-list').classList.remove('hidden');
@@ -3735,8 +3932,8 @@ function backAnn() { closeAnnDetail(); }
 
 function setAnnFb(id, type) {
   st.annFeedback[id] = type;
-  // 既存ユーザーのリアクションも記録
-  const a = announcements.find(x => x.id === id);
+  // リアクションはスコープ外(凍結資産)のためローカルのみ記録。st.currentUidのまま(未接続)
+  const a = findAnn(id);
   if (a) a.reactions[st.currentUid] = type.split(' ')[0];
   showAnn(id);
 }
@@ -3745,9 +3942,10 @@ function setAnnFb(id, type) {
 
 // 投稿エディタ（新規/編集）を開く
 function openAnnEditor(id) {
-  st.editingAnnId = id;
   const isEdit = id !== null;
-  const a = isEdit ? announcements.find(x => x.id === id) : null;
+  const a = isEdit ? findAnn(id) : null;
+  if (isEdit && (!a || typeof a.id === 'number')) return; // モック(初期表示コンテンツ)は編集不可
+  st.editingAnnId = isEdit ? a.id : null;
 
   // 初期値
   const init = a || {
@@ -3854,18 +4052,6 @@ function openAnnEditor(id) {
         </div>
 
         <div class="form-group">
-          <label class="form-label">対象グループ</label>
-          <div class="seg-row" id="ed-targets">
-            ${teams.map(t => `
-              <button class="seg-btn${init.target===t.id?' active':''}" data-tgt="${t.id}"
-                onclick="selEdTgt('${t.id}')">
-                ${t.label}<span style="opacity:.6;margin-left:4px;font-weight:500">(${t.count})</span>
-              </button>
-            `).join('')}
-          </div>
-        </div>
-
-        <div class="form-group">
           <label class="form-label">配信タイミング</label>
           <div class="seg-row" id="ed-timing">
             <button class="seg-btn${!isScheduledInit?' active':''}" data-timing="now"
@@ -3880,7 +4066,7 @@ function openAnnEditor(id) {
             </div>
             <div class="schedule-hint">
               <span>💡</span>
-              <span>指定時刻に自動配信されます。配信前は編集・取消可能です。</span>
+              <span>予定時刻はメモとして保存されます。実際の配信は管理者が「今すぐ配信」を押すまで行われません。</span>
             </div>
           </div>
         </div>
@@ -3944,7 +4130,6 @@ function openAnnEditor(id) {
   st.edState = {
     category: init.category,
     priority: init.priority,
-    target:   init.target,
     pinned:   init.pinned,
     timing:   isScheduledInit ? 'scheduled' : 'now',
     mustRead: init.mustRead,
@@ -4030,13 +4215,6 @@ function selEdPrio(id) {
   });
 }
 
-function selEdTgt(id) {
-  st.edState.target = id;
-  document.querySelectorAll('#ed-targets .seg-btn').forEach(b => {
-    b.classList.toggle('active', b.dataset.tgt === id);
-  });
-}
-
 function selEdTiming(timing) {
   st.edState.timing = timing;
   document.querySelectorAll('#ed-timing .seg-btn').forEach(b => {
@@ -4075,7 +4253,7 @@ function updateEditorState() {
   }
 }
 
-function saveAnn() {
+async function saveAnn() {
   // 入力中のタグも保存
   const tagInp = document.getElementById('ed-tag-input');
   if (tagInp && tagInp.value.trim()) addEdTagFromInput();
@@ -4088,7 +4266,7 @@ function saveAnn() {
   const ed = st.edState;
   const isScheduled = ed.timing === 'scheduled';
 
-  // 予約配信時の日時組み立て
+  // 予約配信時の日時組み立て(自動公開はしない。公開はpublishNow操作のみ、下記参照)
   let scheduledAt = null;
   if (isScheduled) {
     const date = document.getElementById('ed-sched-date').value;
@@ -4109,76 +4287,59 @@ function saveAnn() {
     if (date) readDeadline = `${date} ${time}`;
   }
 
-  const nowIso = new Date().toISOString().slice(0,16).replace('T',' ');
   const tags = st.edTags.slice();
+  const btn = document.getElementById('ed-save-btn');
+  if (btn) btn.disabled = true;
 
-  if (isEdit) {
-    const a = announcements.find(x => x.id === st.editingAnnId);
-    if (a) {
-      a.title = title;
-      a.body = body;
-      a.category = ed.category;
-      a.priority = ed.priority;
-      a.target = ed.target;
-      a.pinned = ed.pinned;
-      a.mustRead = ed.mustRead;
-      a.readDeadline = readDeadline;
-      a.tags = tags;
-      if (isScheduled) {
-        a.status = 'scheduled';
-        a.scheduledAt = scheduledAt;
-        a.publishedAt = null;
-        a.time = '配信予定';
-      } else {
-        a.status = 'published';
-        a.scheduledAt = null;
-        if (!a.publishedAt) a.publishedAt = nowIso;
-        a.time = 'たった今';
-      }
-    }
-  } else {
-    const newId = Math.max(0, ...announcements.map(a => a.id)) + 1;
-    announcements.unshift({
-      id: newId,
-      from: '配送センター長・田中',
-      title, body,
-      category: ed.category,
-      priority: ed.priority,
-      target: ed.target,
-      pinned: ed.pinned,
-      mustRead: ed.mustRead,
-      readDeadline: readDeadline,
-      tags: tags,
-      status: isScheduled ? 'scheduled' : 'published',
-      createdAt: nowIso,
-      publishedAt: isScheduled ? null : nowIso,
-      scheduledAt: scheduledAt,
-      time: isScheduled ? '配信予定' : 'たった今',
-      readBy: [],
-      ackedBy: [],
-      reactions: {},
-      read: false,
-    });
-  }
+  const payload = {
+    title, body,
+    category: ed.category,
+    priority: ed.priority,
+    target: 'all', // 配信範囲は全員向けのみ(班別配信は設けない)
+    pinned: ed.pinned,
+    mustRead: ed.mustRead,
+    readDeadline,
+    tags,
+    status: isScheduled ? 'scheduled' : 'published',
+    scheduledAt,
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+  };
 
-  closeModal();
-  renderAnn();
-
-  setTimeout(() => {
-    let msg;
+  try {
     if (isEdit) {
-      msg = isScheduled ? `✓ ${fmtSchedDate(scheduledAt)} に配信予定で更新しました` : '✓ お知らせを更新しました';
+      const a = findAnn(st.editingAnnId);
+      if (!isScheduled && a && !a.publishedAt) {
+        payload.publishedAt = firebase.firestore.FieldValue.serverTimestamp();
+      }
+      await fbDb.collection('announcements').doc(st.editingAnnId).update(payload);
     } else {
-      msg = isScheduled ? `✓ ${fmtSchedDate(scheduledAt)} に配信予約しました` : '✓ お知らせを投稿しました';
+      payload.authorUid = fbUser.code;
+      payload.authorName = fbUser.name;
+      payload.createdAt = firebase.firestore.FieldValue.serverTimestamp();
+      payload.publishedAt = isScheduled ? null : firebase.firestore.FieldValue.serverTimestamp();
+      await fbDb.collection('announcements').add(payload);
     }
-    showToast(msg);
-  }, 200);
+
+    closeModal();
+    setTimeout(() => {
+      let msg;
+      if (isEdit) {
+        msg = isScheduled ? `✓ ${fmtSchedDate(scheduledAt)} 予定のメモを更新しました` : '✓ お知らせを更新しました';
+      } else {
+        msg = isScheduled ? `✓ ${fmtSchedDate(scheduledAt)} 予定で下書き保存しました(公開は「今すぐ配信」操作が必要です)` : '✓ お知らせを投稿しました';
+      }
+      showToast(msg);
+    }, 200);
+  } catch (err) {
+    showToast('⚠️ 保存に失敗しました（' + (err.code || err.message) + '）');
+    if (btn) btn.disabled = false;
+  }
 }
 
-// 予約中の投稿を今すぐ配信
+// 予約中の投稿を今すぐ配信(自動配信は行わない。公開はこの操作のみ)
 function publishNow(id) {
-  const a = announcements.find(x => x.id === id);
-  if (!a) return;
+  const a = findAnn(id);
+  if (!a || typeof a.id === 'number') return; // モックは対象外
   const html = `
     <div class="modal-card">
       <div class="modal-header">
@@ -4198,27 +4359,30 @@ function publishNow(id) {
       </div>
       <div class="modal-footer">
         <button class="btn btn-ghost" style="flex:1" onclick="closeModal()">キャンセル</button>
-        <button class="btn btn-primary" style="flex:2" onclick="confirmPublishNow(${id})">🚀 配信する</button>
+        <button class="btn btn-primary" style="flex:2" onclick="confirmPublishNow('${id}')">🚀 配信する</button>
       </div>
     </div>`;
   openModal(html);
 }
 
-function confirmPublishNow(id) {
-  const a = announcements.find(x => x.id === id);
-  if (!a) return;
-  a.status = 'published';
-  a.publishedAt = new Date().toISOString().slice(0,16).replace('T',' ');
-  a.scheduledAt = null;
-  a.time = 'たった今';
-  closeModal();
-  renderAnn();
-  setTimeout(() => showToast('✓ お知らせを配信しました'), 200);
+async function confirmPublishNow(id) {
+  try {
+    await fbDb.collection('announcements').doc(id).update({
+      status: 'published',
+      publishedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      scheduledAt: null,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    closeModal();
+    setTimeout(() => showToast('✓ お知らせを配信しました'), 200);
+  } catch (err) {
+    showToast('⚠️ 配信に失敗しました（' + (err.code || err.message) + '）');
+  }
 }
 
 function deleteAnn(id) {
-  const a = announcements.find(x => x.id === id);
-  if (!a) return;
+  const a = findAnn(id);
+  if (!a || typeof a.id === 'number') return; // モック(初期表示コンテンツ)は削除不可
   const html = `
     <div class="modal-card" style="max-height:auto">
       <div class="modal-header">
@@ -4231,40 +4395,40 @@ function deleteAnn(id) {
         </p>
         <div style="background:var(--surface2);border-radius:10px;padding:14px;margin-top:14px">
           <div style="font-weight:700;color:var(--navy);font-size:14px">${a.title}</div>
-          <div style="font-size:12px;color:var(--text-sub);margin-top:4px">${a.from} · ${a.time}</div>
+          <div style="font-size:12px;color:var(--text-sub);margin-top:4px">${escHtml(a.from)} · ${annTimeLabel(a)}</div>
         </div>
       </div>
       <div class="modal-footer">
         <button class="btn btn-ghost" style="flex:1" onclick="closeModal()">キャンセル</button>
         <button class="btn btn-primary" style="flex:1;background:var(--danger)"
-          onclick="confirmDeleteAnn(${id})">削除する</button>
+          onclick="confirmDeleteAnn('${id}')">削除する</button>
       </div>
     </div>`;
   openModal(html);
 }
 
-function confirmDeleteAnn(id) {
-  const idx = announcements.findIndex(x => x.id === id);
-  if (idx !== -1) announcements.splice(idx, 1);
-  closeModal();
-  renderAnn();
-  setTimeout(() => showToast('✓ お知らせを削除しました'), 200);
+async function confirmDeleteAnn(id) {
+  try {
+    await fbDb.collection('announcements').doc(id).delete();
+    closeModal();
+    setTimeout(() => showToast('✓ お知らせを削除しました'), 200);
+  } catch (err) {
+    showToast('⚠️ 削除に失敗しました（' + (err.code || err.message) + '）');
+  }
 }
 
 /* ===== 周知：到達率ダッシュボード ===== */
 
 // ドライバー向け：シンプルな既読率ポップアップ（モーダル）
-function showReachPublic(id) {
-  const a = announcements.find(x => x.id === id);
+async function showReachPublic(id) {
+  const a = findAnn(id);
   if (!a) return;
-  const reach = calcReach(a);
+  const isMock = typeof a.id === 'number';
+  const status = isMock ? getAnnReadStatusMock(a) : await fetchAnnReadStatus(a.id);
+  const { reach, readUsers, unreadUsers, ackedCount } = status;
 
   // ドーナツ用
   const r = 36, c = 2 * Math.PI * r, offset = c * (1 - reach.pct / 100);
-
-  // 既読者・未読者を分類
-  const readUsers   = reach.targets.filter(u => a.readBy.includes(u.id));
-  const unreadUsers = reach.targets.filter(u => !a.readBy.includes(u.id));
 
   openModal(`
     <div class="modal-card" style="max-height:80vh">
@@ -4290,7 +4454,7 @@ function showReachPublic(id) {
           <div>
             <div style="font-size:22px;font-weight:700;color:var(--navy)">${reach.readCount}<span style="font-size:13px;color:var(--text-sub);font-weight:500"> / ${reach.total}名</span></div>
             <div style="font-size:12px;color:var(--text-sub);margin-top:4px">が既読です</div>
-            ${a.mustRead ? `<div style="font-size:11px;color:var(--danger);margin-top:6px;font-weight:700">✋ 必読確認: ${a.ackedBy.length}/${reach.total}名</div>` : ''}
+            ${a.mustRead ? `<div style="font-size:11px;color:var(--danger);margin-top:6px;font-weight:700">✋ 必読確認: ${ackedCount}/${reach.total}名</div>` : ''}
           </div>
         </div>
 
@@ -4314,7 +4478,7 @@ function showReachPublic(id) {
               const reaction = a.reactions[u.id];
               return `
               <div class="user-row">
-                <div class="msg-av" style="background:linear-gradient(135deg,#0D3D9E,#3F8CEF)">${u.name[0]}</div>
+                <div class="msg-av" style="background:linear-gradient(135deg,#0D3D9E,#3F8CEF)">${(u.name||'?')[0]}</div>
                 <div class="user-info">
                   <div class="user-name">${escHtml(u.name)}${reaction?`<span class="reaction-pill">${reaction}</span>`:''}</div>
                   <div class="user-meta">${escHtml(getTeamLabel(u.team))} · ${escHtml(u.driverNo)}</div>
@@ -4332,7 +4496,7 @@ function showReachPublic(id) {
             </div>
             ${unreadUsers.map(u => `
               <div class="user-row">
-                <div class="msg-av" style="background:#C0C8D4">${u.name[0]}</div>
+                <div class="msg-av" style="background:#C0C8D4">${(u.name||'?')[0]}</div>
                 <div class="user-info">
                   <div class="user-name">${escHtml(u.name)}</div>
                   <div class="user-meta">${escHtml(getTeamLabel(u.team))} · ${escHtml(u.driverNo)}</div>
@@ -4347,15 +4511,12 @@ function showReachPublic(id) {
   `);
 }
 
-function showReach(id) {
-  const a = announcements.find(x => x.id === id);
+async function showReach(id) {
+  const a = findAnn(id);
   if (!a) return;
-  const reach = calcReach(a);
-  const team = getTeam(a.target);
-
-  // 既読/未読でユーザーを分類
-  const readUsers   = reach.targets.filter(u => a.readBy.includes(u.id));
-  const unreadUsers = reach.targets.filter(u => !a.readBy.includes(u.id));
+  const isMock = typeof a.id === 'number';
+  const status = isMock ? getAnnReadStatusMock(a) : await fetchAnnReadStatus(a.id);
+  const { reach, readUsers, unreadUsers, ackedCount } = status;
 
   // リアクション集計
   const reactionCounts = { '👍':0, '❓':0, '⚠️':0 };
@@ -4380,7 +4541,7 @@ function showReach(id) {
   document.getElementById('ann-reach').innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:8px;flex-wrap:wrap">
       <button class="btn btn-ghost" style="font-size:12px" onclick="closeReach()">← 一覧に戻る</button>
-      <button class="btn-csv" onclick="exportAnnCsv(${a.id})">
+      <button class="btn-csv" onclick="exportAnnCsv('${a.id}')">
         <span>📄</span>CSV ダウンロード
       </button>
     </div>
@@ -4402,11 +4563,11 @@ function showReach(id) {
         </div>
       </div>
       <div style="flex:1;position:relative;z-index:1">
-        <div style="font-size:11px;opacity:.85;margin-bottom:4px">対象: ${team.label}</div>
+        <div style="font-size:11px;opacity:.85;margin-bottom:4px">対象: ${getTeam(a.target).label}</div>
         <div style="font-size:18px;font-weight:700;line-height:1.4">
           ${reach.readCount} / ${reach.total} 名既読
         </div>
-        <div style="font-size:12px;opacity:.85;margin-top:4px">投稿: ${a.createdAt || a.time}</div>
+        <div style="font-size:12px;opacity:.85;margin-top:4px">投稿: ${annTimeLabel(a)}</div>
       </div>
     </div>
 
@@ -4453,14 +4614,14 @@ function showReach(id) {
         <div class="user-list-header">
           <span>🔴 未読のメンバー（${unreadUsers.length}名）</span>
           <button class="btn btn-ghost" style="font-size:11px;padding:4px 10px;min-height:28px"
-            onclick="sendReminder(${a.id})">🔔 リマインド</button>
+            onclick="sendReminder('${a.id}')">🔔 リマインド</button>
         </div>
         ${unreadUsers.map(u => `
           <div class="user-row">
-            <div class="msg-av" style="background:#5B8FE0">${u.name[0]}</div>
+            <div class="msg-av" style="background:#5B8FE0">${(u.name||'?')[0]}</div>
             <div class="user-info">
-              <div class="user-name">${u.name}</div>
-              <div class="user-meta">${getTeamLabel(u.team)} · ${u.driverNo}</div>
+              <div class="user-name">${escHtml(u.name)}</div>
+              <div class="user-meta">${escHtml(getTeamLabel(u.team))} · ${escHtml(u.driverNo)}</div>
             </div>
             <span class="user-status unread">未読</span>
           </div>
@@ -4477,10 +4638,10 @@ function showReach(id) {
           const reaction = a.reactions[u.id];
           return `
           <div class="user-row">
-            <div class="msg-av" style="background:linear-gradient(135deg,#0D3D9E,#3F8CEF)">${u.name[0]}</div>
+            <div class="msg-av" style="background:linear-gradient(135deg,#0D3D9E,#3F8CEF)">${(u.name||'?')[0]}</div>
             <div class="user-info">
-              <div class="user-name">${u.name}${reaction?`<span class="reaction-pill">${reaction}</span>`:''}</div>
-              <div class="user-meta">${getTeamLabel(u.team)} · ${u.driverNo}</div>
+              <div class="user-name">${escHtml(u.name)}${reaction?`<span class="reaction-pill">${reaction}</span>`:''}</div>
+              <div class="user-meta">${escHtml(getTeamLabel(u.team))} · ${escHtml(u.driverNo)}</div>
             </div>
             <span class="user-status read">既読</span>
           </div>`;
@@ -4489,7 +4650,7 @@ function showReach(id) {
     ` : ''}
 
     <p style="font-size:11px;color:var(--text-muted);text-align:center;margin-top:18px;letter-spacing:.06em">
-      📡 リアルタイム集計（Firebase連携後）
+      📡 リアルタイム集計
     </p>
   `;
   document.getElementById('ann-reach').classList.remove('hidden');
@@ -4519,16 +4680,19 @@ function sendReminder(id) {
 /* ===== CSV エクスポート ===== */
 
 // 個別お知らせのCSVを出力（既読/未読・リアクション含む）
-function exportAnnCsv(id) {
-  const a = announcements.find(x => x.id === id);
+async function exportAnnCsv(id) {
+  const a = findAnn(id);
   if (!a) return;
+  const isMock = typeof a.id === 'number';
+  const status = isMock ? getAnnReadStatusMock(a) : await fetchAnnReadStatus(a.id);
+  const { reach, ackedCount } = status;
 
   const cat = getCat(a.category);
   const prio = priorityMap[a.priority];
   const team = getTeam(a.target);
-  const reach = calcReach(a);
   const targets = reach.targets;
-  const ackCount = a.ackedBy ? a.ackedBy.length : 0;
+  const readCodes = new Set(status.readUsers.map(u => u.id));
+  const ackedInfo = new Map([...status.readUsers, ...status.unreadUsers].map(u => [u.id, u.acked]));
 
   // ヘッダ部（メタ情報）
   const meta = [
@@ -4539,21 +4703,21 @@ function exportAnnCsv(id) {
     ['既読期限',         a.readDeadline || '—'],
     ['タグ',             (a.tags || []).map(t => '#'+t).join(' ')],
     ['対象グループ',     team.label],
-    ['配信日時',         a.publishedAt || a.scheduledAt || a.createdAt],
+    ['配信日時',         annTimeLabel(a)],
     ['ステータス',       a.status === 'scheduled' ? '予約中' : '配信済み'],
     ['到達率',           `${reach.pct}% (${reach.readCount}/${reach.total})`],
-    ['必読確認率',       a.mustRead ? `${Math.round(ackCount/reach.total*100)}% (${ackCount}/${reach.total})` : '—'],
+    ['必読確認率',       a.mustRead ? `${Math.round(ackedCount/reach.total*100)}% (${ackedCount}/${reach.total})` : '—'],
     ['出力日時',         new Date().toLocaleString('ja-JP')],
   ];
 
   // 明細部（ユーザー別の既読・必読確認・リアクション）
   const detailHeader = ['ドライバー番号', '氏名', 'チーム', '既読状態', '必読確認', 'リアクション'];
   const detailRows = targets.map(u => {
-    const isRead = a.readBy.includes(u.id);
-    const isAcked = a.ackedBy && a.ackedBy.includes(u.id);
+    const isRead = readCodes.has(u.id);
+    const isAcked = !!ackedInfo.get(u.id);
     const reaction = a.reactions[u.id] || '';
     return [
-      u.driverNo, u.name, u.team,
+      u.driverNo || u.id, u.name, isMock ? u.team : getTeamLabel(u.team),
       isRead ? '既読' : '未読',
       a.mustRead ? (isAcked ? '確認済' : '未確認') : '—',
       reaction,
@@ -4876,6 +5040,51 @@ function renderChatTab() {
 
 // ログイン時(全ロール共通)に開始する manuals 全件リスナー。ドライバー・管理者どちらの
 // 一覧表示もこの1本のミラーを共有する(reportsの管理者専用リスナーとは異なる設計)。
+// ログイン時に開始し、全ロール共通でannouncements(実データ)を購読する。
+// MOCK_ANNOUNCEMENTS(初期表示コンテンツ)と連結してannouncements配列を再構築する。
+function attachAnnouncementsListener() {
+  if (announcementsUnsub) { announcementsUnsub(); announcementsUnsub = null; }
+  announcementsInitialLoadDone = false;
+  announcementsUnsub = fbDb.collection('announcements').orderBy('createdAt', 'desc')
+    .onSnapshot(snap => {
+      const real = snap.docs.map(d => {
+        const data = d.data();
+        return { id: d.id, ...data, from: data.authorName || '管理者', reactions: {} };
+      });
+      announcements = [...real, ...MOCK_ANNOUNCEMENTS];
+
+      if (announcementsInitialLoadDone) {
+        snap.docChanges().forEach(change => {
+          const data = change.doc.data();
+          if ((change.type === 'added' || change.type === 'modified') && data.status === 'published') {
+            notifyNewAnnouncement(data);
+          }
+        });
+      } else {
+        announcementsInitialLoadDone = true;
+      }
+
+      const tabEl = document.getElementById('tab-announcements');
+      const isActive = tabEl && tabEl.classList.contains('active');
+      if (isActive) renderAnn();
+
+      // users一覧のlistはFirestoreルール上adminのみ許可のため、全ドライバー件数を要する到達率表示は管理者限定
+      // (manuals/fetchManualsAllDriversと同じ制約)。一般ユーザーはmyAnnAcksのみ取得する
+      const fetches = st.role === 'manager'
+        ? [fetchAnnAllDrivers(), refreshAnnReachCache(), fetchMyAnnAcks()]
+        : [fetchMyAnnAcks()];
+      Promise.all(fetches).then(() => {
+        if (isActive) renderAnn();
+        if (st.annDetailId && !document.getElementById('ann-detail').classList.contains('hidden')) {
+          renderAnnDetailBody(st.annDetailId);
+        }
+      });
+    }, err => {
+      console.error('お知らせリスナーエラー:', err);
+      showToast('⚠️ お知らせの取得に失敗しました（' + (err.code || err.message) + '）');
+    });
+}
+
 function attachManualsListener() {
   if (manualsUnsub) { manualsUnsub(); manualsUnsub = null; }
   manualsUnsub = fbDb.collection('manuals').orderBy('createdAt', 'desc')
@@ -6456,6 +6665,20 @@ async function enableReportNotifications() {
   updateReportNotifUI();
 }
 
+// 新着お知らせのPWA通知(アプリ起動中のみ)。報告タブと同じopt-inフラグ・機構を再利用する
+function notifyNewAnnouncement(a) {
+  if (!('Notification' in window)) return;
+  if (Notification.permission !== 'granted') return;
+  if (localStorage.getItem('fbNotifOptIn') !== 'true') return;
+  try {
+    new Notification('📢 新着お知らせ', {
+      body: (a.title || '').slice(0, 60),
+    });
+  } catch (e) {
+    console.error('通知表示エラー:', e);
+  }
+}
+
 function notifyNewReport(r) {
   if (!('Notification' in window)) return;
   if (Notification.permission !== 'granted') return;
@@ -7028,6 +7251,16 @@ function showLoginScreen() {
   // teams関連のリスナーも同様に必ずdetach(teams配列自体はフォールバック値のまま保持してよい)
   if (teamsUnsub) { teamsUnsub(); teamsUnsub = null; }
   teamsLoaded = false;
+  // announcements関連のリスナー・キャッシュも同様に必ずdetach/クリア(MOCK_ANNOUNCEMENTSは維持)
+  if (announcementsUnsub) { announcementsUnsub(); announcementsUnsub = null; }
+  if (annReadsUnsub) { annReadsUnsub(); annReadsUnsub = null; }
+  announcements = [...MOCK_ANNOUNCEMENTS];
+  announcementsInitialLoadDone = false;
+  annCurrentReads = {};
+  annAllDrivers = [];
+  annReachCache = {};
+  myAnnAcks = {};
+  st.annDetailId = null;
   document.getElementById('app').style.display = 'none';
   document.getElementById('login-screen').style.display = 'flex';
   document.getElementById('login-password').value = '';
@@ -7409,6 +7642,9 @@ fbAuth.onAuthStateChanged(async (user) => {
     // teams(9班マスター)も同様に全ロール共通でログイン時から購読を開始する
     attachTeamsListener();
     refreshUserMenuHeader();
+
+    // 周知(announcements)も同様に全ロール共通でログイン時から購読を開始する
+    attachAnnouncementsListener();
 
     showAppScreen();
 
