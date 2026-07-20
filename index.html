@@ -1054,6 +1054,9 @@ header {
   width: 100%;
   max-width: 600px;
   max-height: 92vh;
+  max-height: 92dvh; /* モバイルのアドレスバー等で実際の可視領域がvhより小さくなる端末対応。
+                        コンテンツが長いモーダル(乗務員マスタ・班編成管理等)でヘッダーが
+                        画面外に押し出され閉じられなくなる不具合の対策 */
   border-radius: 18px 18px 0 0;
   display: flex; flex-direction: column;
   overflow: hidden;
@@ -4904,10 +4907,11 @@ function attachChannelListener(id) {
     currentChannelUnsub = null;
   }
   currentChannelUnsub = fbDb.collection('channels').doc(id).collection('messages')
-    .orderBy('createdAt', 'asc')
-    .limit(100)
+    .orderBy('createdAt', 'desc')
+    .limit(50)
     .onSnapshot(snap => {
-      chatMessages = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      // desc+limitで最新50件を取得し、表示用に昇順(古い→新しい)へ戻す
+      chatMessages = snap.docs.map(d => ({ id: d.id, ...d.data() })).reverse();
       renderChat();
       if (st.role === 'manager') {
         updateChatMgrStats();

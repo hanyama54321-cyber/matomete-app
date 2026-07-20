@@ -54,3 +54,11 @@ Step 3で `10168 → u01`（モックusers配列内の南野）のように、Fi
 ## 6. LINE連携は見送り(決定記録)
 
 LINE連携(LINEログイン・LIFF等)はセキュリティ上の懸念により見送り。将来の通知はメール(Firestore実メール+Cloud Functions基盤、上記3・5と同じ基盤)を優先する方針。コード・UI上のLINE関連の記述・実装(ログアウト説明文・アプリ情報画面の認証方式表示)はv0.2で削除済み。
+
+## 7. チャットの読み取りコスト設計(limit是正のみ対応済み、残り2点は次フェーズ)
+
+当初の設計メモ: 「初回50件+新着1件ずつ取得」「`persistentLocalCache`で再訪時の再読込を抑制」「90日超メッセージのアーカイブジョブは将来検討」。
+
+- **初回件数(対応済み・v0.2)**: `attachChannelListener()`(`index.html`)を`orderBy('createdAt','desc').limit(50)`+クライアント側`reverse()`に変更。従来の`orderBy('asc').limit(100)`は「最も古い100件」を取得する形になっており、101件目以降の新着が表示されない実質的なバグを内包していたため、読み取りコスト是正と同時に機能修正も行った。**チャンネル切替のたびに`currentChannelUnsub()`→再購読**する既存実装は変更していないため、同じチャンネルに戻るたびに初期スナップショット分(最大50件)が再度読み取り課金される点は残る(下記`persistentLocalCache`未対応と合わせて次フェーズの課題)。
+- **`persistentLocalCache`/`enablePersistence`(次フェーズ・単独対応可)**: 未実装。`index.html`の`const fbDb = firebase.firestore();`はデフォルト設定のままで、オフラインキャッシュは無効。有効化はアプリ全体で共有する`fbDb`インスタンスに影響するため、チャット以外の既存リスナー(announcements/manuals/kyt/reports/users)への影響確認を含めて対応する。
+- **90日超メッセージのアーカイブジョブ(次フェーズ・Cloud Functions導入時)**: 未実装。Cloud Functionsインフラ自体がこのプロジェクトに存在しない(項目2b/3/4と同じ制約)ため、Cloud Functions導入(項目3のパスワードリセット等)とまとめて設計する。
