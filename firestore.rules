@@ -76,11 +76,11 @@ service cloud.firestore {
     }
 
     match /channels/{channelId} {
-      // 一覧・個別取得ともteamId('all'|team_a〜team_i)で可視性を判定
-      allow get, list: if isSignedIn()
-        && (resource.data.teamId == 'all' || resource.data.teamId == myUserDoc().team || isAdmin());
+      // 閲覧(一覧・個別取得とも)はログイン済み全員に開放(v0.2: 他班チャンネルも閲覧可能に)。
+      // 書き込みは従来どおり所属班+adminのみ(下記 messages/allow create, update 参照)
+      allow get, list: if isSignedIn();
       // チャンネル自体の作成・削除、teamId/name等の変更はadminのみ。
-      // ただし lastMessage フィールドのみは、そのチャンネルが見える認証ユーザーなら
+      // ただし lastMessage フィールドのみは、投稿権限(所属班+admin)があるユーザーなら
       // 誰でも更新可(メッセージ送信時に併記更新するため)
       allow create, delete: if isAdmin();
       allow update: if isAdmin()
@@ -89,8 +89,8 @@ service cloud.firestore {
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastMessage']));
 
       match /messages/{messageId} {
-        // 閲覧は親チャンネルの可視性ルールに従う
-        allow read: if isSignedIn() && channelVisible(channelId);
+        // 閲覧はログイン済み全員に開放(v0.2)。投稿はchannelVisible()(所属班+admin)のまま維持
+        allow read: if isSignedIn();
 
         // 投稿: チャンネルが見えるユーザーのみ。senderUid/senderName/senderRoleは
         // リクエスト者本人のusersドキュメントと一致する値のみ許可(なりすまし防止)

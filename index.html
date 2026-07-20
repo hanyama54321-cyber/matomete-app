@@ -255,6 +255,12 @@ header {
   background: var(--grad); color: white;
   border-color: transparent;
 }
+/* 自分の所属班チャンネルを強調(チャットのチャンネルチップ) */
+.chip-own:not(.active) {
+  border-color: var(--primary);
+  color: var(--primary);
+  font-weight: 800;
+}
 .input-field {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -1921,7 +1927,7 @@ header {
         <div class="logo-title">安全配送 まとめてアプリ</div>
         <div style="display:flex;align-items:center;gap:5px">
           <div class="logo-sub">SAFETY DELIVERY</div>
-          <span style="font-size:7px;font-weight:700;background:rgba(26,86,196,.1);color:var(--primary);border:1px solid rgba(26,86,196,.25);border-radius:3px;padding:1px 4px;letter-spacing:.02em;line-height:1.6;white-space:nowrap">Ver.0.1</span>
+          <span style="font-size:7px;font-weight:700;background:rgba(26,86,196,.1);color:var(--primary);border:1px solid rgba(26,86,196,.25);border-radius:3px;padding:1px 4px;letter-spacing:.02em;line-height:1.6;white-space:nowrap">Ver.0.2</span>
         </div>
       </div>
     </div>
@@ -1967,7 +1973,7 @@ header {
         <span class="um-icon">ℹ️</span>
         <div style="flex:1">
           <div style="font-weight:700">このアプリについて</div>
-          <div style="font-size:11px;color:var(--text-muted);margin-top:1px">Ver. 0.1 · 安全配送まとめてアプリ</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:1px">Ver. 0.2 · 安全配送まとめてアプリ</div>
         </div>
       </button>
       <button id="um-user-mgmt-btn" class="user-menu-item hidden" onclick="openUserManagement()">
@@ -1990,7 +1996,7 @@ header {
         <span class="um-icon">🚪</span>
         <div>
           <div style="font-weight:700">ログアウト</div>
-          <div style="font-size:11px;color:var(--text-muted);margin-top:1px">LINE アカウントからサインアウト</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:1px">アカウントからサインアウトします</div>
         </div>
       </button>
     </div>
@@ -2080,11 +2086,14 @@ header {
           <span id="ch-online-badge" class="tag" style="margin-left:auto;font-size:10px;background:rgba(31,157,85,.1);color:var(--safe);border:1px solid rgba(31,157,85,.3)">● オンライン 5名</span>
         </div>
         <div id="chat-msgs" class="chat-messages hide-scroll"></div>
+        <div id="chat-readonly-notice" class="hidden" style="padding:8px 16px;font-size:12px;color:var(--text-muted);background:var(--surface2);border-top:1px solid var(--border)">
+          👁️ このチャンネルは閲覧のみです（書き込みは所属班のみ）
+        </div>
         <div class="chat-input-bar">
           <input type="text" id="chat-input" class="input-field" placeholder="メッセージを入力..."
             enterkeyhint="send" style="flex:1"
             onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMsg();}">
-          <button class="btn btn-primary" onclick="sendMsg()" style="min-width:64px">送信</button>
+          <button id="chat-send-btn" class="btn btn-primary" onclick="sendMsg()" style="min-width:64px">送信</button>
         </div>
       </div>
 
@@ -3123,7 +3132,7 @@ function openNotifSettings() {
             { label:'新着お知らせ', desc:'管理者からのお知らせを受け取る', on:true },
             { label:'必読リマインダー', desc:'既読期限前に通知', on:true },
             { label:'チャットメッセージ', desc:'メンションされたときに通知', on:true },
-            { label:'報告への返信', desc:'対応ステータスが変わったとき', on:false },
+            { label:'報告への返信', desc:'対応ステータスが変わったとき', on:true },
           ].map(item => `
             <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)">
               <div>
@@ -3163,11 +3172,11 @@ function openAppInfo() {
         <div style="font-size:12px;letter-spacing:.18em;color:var(--primary);font-weight:700;margin-bottom:20px">SAFETY DELIVERY PORTAL</div>
         <div class="divider"></div>
         ${[
-          ['バージョン', 'Ver. 0.1'],
+          ['バージョン', 'Ver. 0.2'],
           ['対応 iOS', 'iOS 16.4+（PWA 通知サポート）'],
           ['バックエンド', 'Firebase（Firestore / FCM）'],
-          ['認証', 'LINE Login（LIFF）'],
-          ['開発・運用', '配送センター 管理部'],
+          ['認証', 'Firebase Authentication'],
+          ['開発・運用', '名古屋共配センター'],
           ['著作権者', '南野'],
         ].map(([k,v]) => `
           <div style="display:flex;justify-content:space-between;padding:10px 4px;border-bottom:1px solid var(--border);font-size:13px">
@@ -4833,11 +4842,31 @@ function scrollChatBot() {
   if (c) c.scrollTop = c.scrollHeight;
 }
 
+// 現在のチャンネルに投稿できるか(所属班+admin。channelVisible()のrules判定と対応させること)
+function canWriteToCurrentChannel() {
+  if (!fbUser) return false;
+  return st.role === 'manager'
+    || currentChannel === 'general' || currentChannel === 'safety'
+    || currentChannel === fbUser.team;
+}
+
+// チャンネル切替・タブ再表示のたびに書き込み可否を反映する(v0.2: 閲覧は全班に開放、書き込みは所属班のみ)
+function updateChatInputState() {
+  const writable = canWriteToCurrentChannel();
+  const inp = document.getElementById('chat-input');
+  const btn = document.getElementById('chat-send-btn');
+  const notice = document.getElementById('chat-readonly-notice');
+  if (inp) inp.disabled = !writable;
+  if (btn) btn.disabled = !writable;
+  if (notice) notice.classList.toggle('hidden', writable);
+}
+
 async function sendMsg() {
+  if (!canWriteToCurrentChannel()) return; // 入力欄のdisabled属性をバイパスするEnterキー送信等への保険
   const inp = document.getElementById('chat-input');
   const text = inp.value.trim();
   if (!text || !fbUser) return;
-  const btn = document.querySelector('.chat-input-bar .btn-primary');
+  const btn = document.getElementById('chat-send-btn');
   if (btn) btn.disabled = true;
   try {
     await fbDb.collection('channels').doc(currentChannel).collection('messages').add({
@@ -4897,6 +4926,7 @@ function switchCh(id, name) {
   renderChat();             // 前チャンネルの表示を即座にクリア
   attachChannelListener(id);
   renderChannelChips();     // 固定チップ・班選択ボタンのactive状態を更新
+  updateChatInputState();   // 書き込み可否(所属班+admin)を入力欄に反映
   // 管理者モードならメンバー数・統計を更新
   if (st.role === 'manager') {
     updateChatMgrStats();
@@ -4925,10 +4955,13 @@ function renderChannelChips() {
     ...teams.filter(t => t.id !== 'all').map(t => ({ id:t.id, label:t.displayName })),
     { id:'safety', label:'安全報告' },
   ];
-  host.innerHTML = channelList.map(c => `
-    <button class="chip${c.id === currentChannel ? ' active' : ''}"
-      onclick="switchCh('${c.id}','${escHtml(c.label)}')"># ${escHtml(c.label)}</button>
-  `).join('');
+  host.innerHTML = channelList.map(c => {
+    const isOwn = fbUser && c.id === fbUser.team;
+    return `
+    <button class="chip${c.id === currentChannel ? ' active' : ''}${isOwn ? ' chip-own' : ''}"
+      onclick="switchCh('${c.id}','${escHtml(c.label)}')"># ${escHtml(c.label)}${isOwn ? ' 🏠' : ''}</button>
+  `;
+  }).join('');
 }
 
 // メッセージ数等の統計（管理者ヘッダー上部のカード）
@@ -5033,6 +5066,7 @@ function renderChatTab() {
     document.getElementById('chat-mgr-stats').classList.add('hidden');
     document.getElementById('ch-members-btn').classList.add('hidden');
   }
+  updateChatInputState(); // タブ再表示時に書き込み可否がずれないようにする
   renderChat();
 }
 
