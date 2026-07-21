@@ -92,17 +92,21 @@ header {
   position: relative;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
-  padding: 0 16px;
+  /* standalone(ホーム画面追加)表示時、apple-mobile-web-app-status-bar-styleが
+     black-translucentのためステータスバー領域までアプリ描画が広がる。
+     safe-area-inset-topでヘッダー内容を押し下げてステータスバーとの重なりを防ぐ。
+     ブラウザ表示時はenv()が0になるため既存の見た目に影響しない */
+  padding: env(safe-area-inset-top) calc(16px + env(safe-area-inset-right)) 0 calc(16px + env(safe-area-inset-left));
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 56px;
+  min-height: 56px;
   flex-shrink: 0;
   z-index: 10;
 }
 .brand-bar {
   position: absolute;
-  top: 0; left: 0; right: 0;
+  top: env(safe-area-inset-top); left: 0; right: 0;
   height: 3px;
   background: var(--grad);
 }
@@ -148,8 +152,7 @@ header {
   flex: 1;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding: 16px;
-  padding-bottom: calc(76px + env(safe-area-inset-bottom));
+  padding: 16px calc(16px + env(safe-area-inset-right)) calc(76px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));
 }
 
 /* ===== ボトムナビ ===== */
@@ -160,7 +163,11 @@ header {
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border-top: 1px solid var(--border);
+  /* ホームインジケーター(下)・横向き時のノッチ(左右)との重なり対策。
+     ブラウザ表示時はenv()が0になるため既存の見た目に影響しない */
   padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
   z-index: 100;
   display: flex;
   justify-content: center;
@@ -4794,7 +4801,7 @@ function showToast(msg) {
     t = document.createElement('div');
     t.id = 'toast-el';
     t.style.cssText = `
-      position:fixed;bottom:96px;left:50%;transform:translateX(-50%);
+      position:fixed;bottom:calc(96px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);
       background:var(--navy);color:white;
       padding:11px 20px;border-radius:24px;
       font-size:13px;font-weight:700;
