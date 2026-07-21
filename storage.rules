@@ -1,0 +1,35 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // 疑似メールの@より前 = 乗務員コード(firestore.rulesのmyCode()と同じ正規化ルール)
+    function myCode() {
+      return request.auth.token.email.split('@')[0].upper();
+    }
+
+    // Storage rulesのクロスサービス参照でFirestoreのusers/{code}.roleを直接確認する
+    // (firestore.rules側のisAdmin()と同じ考え方)
+    function isAdmin() {
+      return isSignedIn()
+        && firestore.get(/databases/(default)/documents/users/$(myCode())).data.role == 'admin';
+    }
+
+    match /manuals/{manualId}/{fileName} {
+      // 閲覧はログイン済み全員
+      allow read: if isSignedIn();
+      // アップロードはadminのみ。誤アップロード防止のため50MB未満に制限
+      allow write: if isAdmin() && request.resource.size < 50 * 1024 * 1024;
+      // 削除もadminのみ
+      allow delete: if isAdmin();
+    }
+
+    // 上記以外のパスはデフォルト拒否
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

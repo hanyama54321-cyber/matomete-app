@@ -1,0 +1,215 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // 疑似メールの@より前 = 乗務員コード
+    // Firebase Authはメールを小文字で保存するため、正準形(大文字)に揃える
+    function myCode() {
+      return request.auth.token.email.split('@')[0].upper();
+    }
+
+    // admin判定: 自分のusersドキュメントのroleをget()で参照
+    function isAdmin() {
+      return isSignedIn()
+        && get(/databases/$(database)/documents/users/$(myCode())).data.role == 'admin';
+    }
+
+    // 自分のusersドキュメント本体（team/name/role等の参照に使う）
+    // 同一ドキュメントへの複数回のget()はルール評価内でキャッシュされるため、
+    // isAdmin()と重複呼び出しになってもコストは増えない
+    function myUserDoc() {
+      return get(/databases/$(database)/documents/users/$(myCode())).data;
+    }
+
+    // チャンネル閲覧可否: general/safety等(teamId:'all')は全員、
+    // 班チャンネルは自分の所属班のみ、adminは常に全チャンネル閲覧可
+    function channelVisible(channelId) {
+      let ch = get(/databases/$(database)/documents/channels/$(channelId)).data;
+      return ch.teamId == 'all' || ch.teamId == myUserDoc().team || isAdmin();
+    }
+
+    match /users/{code} {
+      // 本人 or admin は個別取得可
+      allow get: if isSignedIn() && (myCode() == code || isAdmin());
+      // 一覧取得はadminのみ(ユーザー管理画面用)
+      allow list: if isAdmin();
+      // 本人は passwordChanged フィールドのみ、または team フィールドのみ(所属班の自己変更)を更新可(role等は変更不可)
+      // team自己変更はteam_a〜team_iのホワイトリストのみ許可(channelVisible()がteamを信頼するため、任意値の書込みは班チャンネルへの不正アクセスに直結する)
+      // adminは全フィールド更新可(役割変更用)。ただし自分自身のroleは変更不可(自己降格防止)
+      allow update: if (isAdmin()
+            && !(myCode() == code && request.resource.data.role != resource.data.role))
+        || (myCode() == code
+            && request.resource.data.diff(resource.data)
+               .affectedKeys().hasOnly(['passwordChanged']))
+        || (myCode() == code
+            && request.resource.data.diff(resource.data)
+               .affectedKeys().hasOnly(['team'])
+            && request.resource.data.team in
+               ['team_a','team_b','team_c','team_d','team_e','team_f','team_g','team_h','team_i']);
+      // 作成・削除はadminのみ(CSV一括投入もこの権限で通る)
+      allow create, delete: if isAdmin();
+    }
+
+    match /announcements/{id} {
+      // 閲覧はログイン済み全員(予約配信の非表示制御はクライアント側で行う)。
+      // 作成・更新・削除はadminのみ(manuals/kytと同型、物理削除許可)
+      allow read: if isSignedIn();
+      allow create, update, delete: if isAdmin();
+
+      // 既読・必読確認記録は本人のみ作成・更新可(ドキュメントID=乗務員コード)。
+      // manuals/reads と同じ分離パターン(announcements本体はadmin限定更新のため)。
+      match /reads/{code} {
+        allow read: if isSignedIn();
+        allow create, update: if isSignedIn() && code == myCode();
+        allow delete: if isAdmin();
+      }
+    }
+
+    // 班マスター(9班体制)。読み取りは全認証ユーザー、書き込みはadminのみ
+    match /teams/{teamId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /channels/{channelId} {
+      // 閲覧(一覧・個別取得とも)はログイン済み全員に開放(v0.2: 他班チャンネルも閲覧可能に)。
+      // 書き込みは従来どおり所属班+adminのみ(下記 messages/allow create, update 参照)
+      allow get, list: if isSignedIn();
+      // チャンネル自体の作成・削除、teamId/name等の変更はadminのみ。
+      // ただし lastMessage フィールドのみは、投稿権限(所属班+admin)があるユーザーなら
+      // 誰でも更新可(メッセージ送信時に併記更新するため)
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin()
+        || (isSignedIn()
+            && (resource.data.teamId == 'all' || resource.data.teamId == myUserDoc().team)
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastMessage']));
+
+      match /messages/{messageId} {
+        // 閲覧はログイン済み全員に開放(v0.2)。投稿はchannelVisible()(所属班+admin)のまま維持
+        allow read: if isSignedIn();
+
+        // 投稿: チャンネルが見えるユーザーのみ。senderUid/senderName/senderRoleは
+        // リクエスト者本人のusersドキュメントと一致する値のみ許可(なりすまし防止)
+        allow create: if isSignedIn()
+          && channelVisible(channelId)
+          && request.resource.data.senderUid  == myCode()
+          && request.resource.data.senderName == myUserDoc().name
+          && request.resource.data.senderRole == myUserDoc().role
+          && request.resource.data.deleted == false;
+
+        // 削除はadminのみ、かつ deleted:true へのソフト削除(update)限定。
+        // deletedByは操作したadmin本人のコードで固定(なりすまし防止)
+        allow update: if isAdmin()
+          && request.resource.data.diff(resource.data)
+             .affectedKeys().hasOnly(['deleted', 'deletedBy', 'deletedAt'])
+          && request.resource.data.deleted == true
+          && request.resource.data.deletedBy == myCode();
+
+        // 物理削除は全ロールで禁止
+        allow delete: if false;
+      }
+    }
+
+    // 報告(フィードバック)の受付番号カウンタ。単一ドキュメント counters/reports
+    match /counters/reports {
+      allow get: if isSignedIn();
+      // 初回作成: countが1のドキュメントのみ
+      allow create: if isSignedIn() && request.resource.data.count == 1;
+      // 以降の採番: countフィールドのみを直前値+1に更新
+      allow update: if isSignedIn()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['count'])
+        && request.resource.data.count == resource.data.count + 1;
+    }
+
+    match /reports/{reportId} {
+      // get: 本人 / admin / public / 匿名報告はID既知なら誰でも取得可
+      //      (listには含めないため、他人の匿名報告IDを知らない限り閲覧不可。
+      //       端末ローカル(localStorage)で自分の匿名投稿IDを追跡する設計に対応)
+      allow get: if isSignedIn()
+        && (resource.data.submitterUid == myCode()
+            || isAdmin()
+            || resource.data.visibility == 'public'
+            || resource.data.anonymous == true);
+
+      // list: 自分の投稿(記名) / admin / 公開済みのみ列挙可
+      allow list: if isSignedIn()
+        && (resource.data.submitterUid == myCode()
+            || isAdmin()
+            || resource.data.visibility == 'public');
+
+      // 作成: 送信者情報のなりすまし防止(messagesと同様のパターン)。
+      // 匿名時はsubmitter系フィールドをすべてnullに固定。新規は必ずopen/private系の初期値。
+      allow create: if isSignedIn()
+        && request.resource.data.status == 'open'
+        && request.resource.data.visibility in ['private', 'pending_public']
+        && request.resource.data.assigneeUid == null
+        && request.resource.data.assigneeName == null
+        && request.resource.data.internalNote == ''
+        && request.resource.data.replyToReporter == ''
+        && request.resource.data.statusUpdatedAt == null
+        && (request.resource.data.anonymous == true
+            ? (request.resource.data.submitterUid == null
+               && request.resource.data.submitterName == null
+               && request.resource.data.submitterTeam == null)
+            : (request.resource.data.submitterUid == myCode()
+               && request.resource.data.submitterName == myUserDoc().name));
+
+      // update: adminは全フィールド可。投稿者本人はvisibilityのprivate⇔pending_publicのみ
+      //         (public化された後は本人操作不可＝取り下げ不可、admin操作のみ)
+      // 匿名報告(submitterUid==null)は、そもそもresource.data.submitterUid==myCode()が
+      // 成立しないため、投稿者本人であってもvisibilityを後から変更できない(仕様として許容)。
+      allow update: if isAdmin()
+        || (isSignedIn()
+            && resource.data.submitterUid == myCode()
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['visibility'])
+            && resource.data.visibility != 'public'
+            && request.resource.data.visibility in ['private', 'pending_public']);
+
+      allow delete: if isAdmin();
+    }
+
+    match /manuals/{manualId} {
+      // 閲覧はログイン済み全員。作成・削除・更新はいずれもadminのみ
+      // (更新は運用上ほぼ使わないが、タイトル修正等のためadmin限定で定義しておく)
+      allow read: if isSignedIn();
+      allow create, delete, update: if isAdmin();
+
+      // 既読記録は本人のみ作成・更新可(ドキュメントID=乗務員コード)。
+      // manuals本体はadmin限定更新のため、既読登録はここを独立コレクションとして分離している。
+      match /reads/{code} {
+        allow read: if isSignedIn();
+        allow create, update: if isSignedIn() && code == myCode();
+        allow delete: if isAdmin();
+      }
+    }
+
+    match /kyt/{scenarioId} {
+      // 閲覧はログイン済み全員。シナリオ本体の作成・更新・削除はadminのみ
+      allow read: if isSignedIn();
+      allow create, update, delete: if isAdmin();
+
+      // 完了記録は本人のみ作成・更新可(ドキュメントID=乗務員コード)。
+      // manuals/reads と異なり、要件上「code(=ドキュメントID、本人一致必須)」が明記されているため
+      // フィールド側のcodeもmyCode()と突き合わせ、スコアの範囲(0〜total)も検証する。
+      // adminであっても他人の完了記録は作成・更新できない(削除のみadmin可)。
+      match /completions/{code} {
+        allow read: if isSignedIn();
+        allow create, update: if isSignedIn()
+          && code == myCode()
+          && request.resource.data.code == myCode()
+          && request.resource.data.score >= 0
+          && request.resource.data.score <= request.resource.data.total;
+        allow delete: if isAdmin();
+      }
+    }
+
+    // 上記以外のコレクションはデフォルト拒否(明示不要だが漏れ防止)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
