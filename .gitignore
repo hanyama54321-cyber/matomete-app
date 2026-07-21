@@ -8,3 +8,11 @@ firebase-debug.log
 firestore-debug.log
 ui-debug.log
 .firebase/
+
+# Cloud Functions導入時のシークレット類(誤コミット防止のため事前に除外)
+serviceAccountKey.json
+*-firebase-adminsdk-*.json
+functions/.env
+functions/.env.*
+*.pem
+*.p12
