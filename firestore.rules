@@ -49,9 +49,22 @@ service cloud.firestore {
             && request.resource.data.diff(resource.data)
                .affectedKeys().hasOnly(['team'])
             && request.resource.data.team in
-               ['team_a','team_b','team_c','team_d','team_e','team_f','team_g','team_h','team_i']);
+               ['team_a','team_b','team_c','team_d','team_e','team_f','team_g','team_h','team_i'])
+        // lastActiveDateは利用状況計測(recordSession())用。本人のみ単独更新可
+        || (myCode() == code
+            && request.resource.data.diff(resource.data)
+               .affectedKeys().hasOnly(['lastActiveDate']));
       // 作成・削除はadminのみ(CSV一括投入もこの権限で通る)
       allow create, delete: if isAdmin();
+    }
+
+    // 利用状況計測(DAU/WAU/MAU集計用)。1ユーザー1日1回、ログイン時にrecordSession()が作成する。
+    // 集計(閲覧)はadminのみ。作成は本人のみ(なりすまし防止)。追記のみでupdate/deleteは不可
+    // (重複作成されてもコスト上無視でき、集計はdateでユニーク化するため実害なし)
+    match /sessions/{sessionId} {
+      allow read: if isAdmin();
+      allow create: if isSignedIn() && request.resource.data.code == myCode();
+      allow update, delete: if false;
     }
 
     match /announcements/{id} {

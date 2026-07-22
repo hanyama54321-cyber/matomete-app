@@ -128,3 +128,21 @@ test('一般ユーザーは他ユーザーのteamを更新できない', async (
   const db = authedContext(testEnv, 'D12').firestore();
   await assertFails(db.collection('users').doc('ADM1').update({ team: 'team_i' }));
 });
+
+test('一般ユーザーは自分のlastActiveDateを単独更新できる(利用状況計測)', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'D12').firestore();
+  await assertSucceeds(db.collection('users').doc('D12').update({ lastActiveDate: '2026-07-22' }));
+});
+
+test('一般ユーザーはlastActiveDateと他フィールドを同時更新できない', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'D12').firestore();
+  await assertFails(db.collection('users').doc('D12').update({ lastActiveDate: '2026-07-22', team: 'team_i' }));
+});
+
+test('一般ユーザーは他ユーザーのlastActiveDateを更新できない', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'D12').firestore();
+  await assertFails(db.collection('users').doc('ADM1').update({ lastActiveDate: '2026-07-22' }));
+});

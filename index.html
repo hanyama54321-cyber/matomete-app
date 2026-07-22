@@ -1937,7 +1937,7 @@ header {
         <div class="logo-title">安全配送 まとめてアプリ</div>
         <div style="display:flex;align-items:center;gap:5px">
           <div class="logo-sub">SAFETY DELIVERY</div>
-          <span style="font-size:7px;font-weight:700;background:rgba(26,86,196,.1);color:var(--primary);border:1px solid rgba(26,86,196,.25);border-radius:3px;padding:1px 4px;letter-spacing:.02em;line-height:1.6;white-space:nowrap">Ver.0.2</span>
+          <span id="version-badge" style="font-size:7px;font-weight:700;background:rgba(26,86,196,.1);color:var(--primary);border:1px solid rgba(26,86,196,.25);border-radius:3px;padding:1px 4px;letter-spacing:.02em;line-height:1.6;white-space:nowrap">Ver.0.2</span>
         </div>
       </div>
     </div>
@@ -1983,7 +1983,7 @@ header {
         <span class="um-icon">ℹ️</span>
         <div style="flex:1">
           <div style="font-weight:700">このアプリについて</div>
-          <div style="font-size:11px;color:var(--text-muted);margin-top:1px">Ver. 0.2 · 安全配送まとめてアプリ</div>
+          <div id="um-version-subtitle" style="font-size:11px;color:var(--text-muted);margin-top:1px">Ver. 0.2 · 安全配送まとめてアプリ</div>
         </div>
       </button>
       <button id="um-user-mgmt-btn" class="user-menu-item hidden" onclick="openUserManagement()">
@@ -1999,6 +1999,14 @@ header {
         <div style="flex:1">
           <div style="font-weight:700">班編成管理</div>
           <div style="font-size:11px;color:var(--text-muted);margin-top:1px">班長名・呼称の編集（管理者のみ）</div>
+        </div>
+        <span style="font-size:12px;color:var(--text-muted)">›</span>
+      </button>
+      <button id="um-usage-btn" class="user-menu-item hidden" onclick="openUsageAnalytics()">
+        <span class="um-icon">📊</span>
+        <div style="flex:1">
+          <div style="font-weight:700">利用状況</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:1px">DAU/WAU/MAUの確認（管理者のみ）</div>
         </div>
         <span style="font-size:12px;color:var(--text-muted)">›</span>
       </button>
@@ -2458,6 +2466,12 @@ header {
 
 <script>
 'use strict';
+
+// アプリバージョン(単一の情報源)。バージョン更新時はこの1箇所だけ変更すればよい。
+// ヘッダーバッジ・ユーザーメニュー・アプリ情報画面・利用状況計測(sessions.appVersion)は
+// すべてこの定数を参照する(#version-badge/#um-version-subtitleへは初期化処理でJSから反映、
+// アプリ情報画面・recordSession()は関数内で直接参照)
+const APP_VERSION = '0.2.1';
 
 /* ===== データ ===== */
 
@@ -2950,6 +2964,60 @@ function fmtRelativeTime(ts) {
   return `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
 }
 
+/* ===== 利用状況計測(DAU/WAU/MAU)用ヘルパー ===== */
+
+// Asia/Tokyoのカレンダー日を "YYYY-MM-DD" で返す(端末のタイムゾーン設定に依存しない)
+function jstDateStr(date = new Date()) {
+  return date.toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' });
+}
+
+// "YYYY-MM-DD" 文字列からISO 8601週番号("YYYY-Www")を算出する(木曜日基準の標準アルゴリズム)
+function dateStrToIsoWeek(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  const dayNum = (dt.getUTCDay() + 6) % 7; // 月=0…日=6
+  dt.setUTCDate(dt.getUTCDate() - dayNum + 3); // その週の木曜日
+  const firstThursday = new Date(Date.UTC(dt.getUTCFullYear(), 0, 4));
+  const firstDayNum = (firstThursday.getUTCDay() + 6) % 7;
+  firstThursday.setUTCDate(firstThursday.getUTCDate() - firstDayNum + 3);
+  const weekNum = 1 + Math.round((dt - firstThursday) / (7 * 24 * 60 * 60 * 1000));
+  return `${dt.getUTCFullYear()}-W${String(weekNum).padStart(2, '0')}`;
+}
+
+// standalone(ホーム画面追加アプリ)かどうか・OSを判定し、'ios-pwa'|'android-pwa'|'web' を返す
+function detectPlatform() {
+  const isStandalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
+    || window.navigator.standalone === true;
+  const ua = navigator.userAgent || '';
+  if (isStandalone && /iPhone|iPad|iPod/.test(ua)) return 'ios-pwa';
+  if (isStandalone && /Android/.test(ua)) return 'android-pwa';
+  return 'web';
+}
+
+// ログイン成功後に1回呼ぶ。users/{code}.lastActiveDateと本日日付(JST)を比較し、
+// 未記録の日のみ sessions への追加 + lastActiveDate更新を行う(1ユーザー1日1回のユニーク記録)。
+// fbUserは初回のusersドキュメント取得時点でlastActiveDateも含んで確定しているため、
+// 重複判定のための追加読み取りは発生しない
+async function recordSession() {
+  if (!fbUser) return;
+  const today = jstDateStr();
+  if (fbUser.lastActiveDate === today) return; // 本日分は記録済み
+  try {
+    await fbDb.collection('sessions').add({
+      code: fbUser.code,
+      date: today,
+      week: dateStrToIsoWeek(today),
+      platform: detectPlatform(),
+      appVersion: APP_VERSION,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    await fbDb.collection('users').doc(fbUser.code).update({ lastActiveDate: today });
+    fbUser.lastActiveDate = today;
+  } catch (e) {
+    console.error('セッション記録エラー:', e);
+  }
+}
+
 const priorityMap = {
   high:   { label:'重要', color:'var(--danger)', icon:'🔴' },
   normal: { label:'通常', color:'var(--primary)', icon:'🔵' },
@@ -3182,7 +3250,7 @@ function openAppInfo() {
         <div style="font-size:12px;letter-spacing:.18em;color:var(--primary);font-weight:700;margin-bottom:20px">SAFETY DELIVERY PORTAL</div>
         <div class="divider"></div>
         ${[
-          ['バージョン', 'Ver. 0.2'],
+          ['バージョン', 'Ver. ' + APP_VERSION],
           ['対応 iOS', 'iOS 16.4+（PWA 通知サポート）'],
           ['バックエンド', 'Firebase（Firestore / FCM）'],
           ['認証', 'Firebase Authentication'],
@@ -3253,6 +3321,8 @@ function setRole(role) {
   if (userMgmtBtn) userMgmtBtn.classList.toggle('hidden', role !== 'manager');
   const teamMgmtBtn = document.getElementById('um-team-mgmt-btn');
   if (teamMgmtBtn) teamMgmtBtn.classList.toggle('hidden', role !== 'manager');
+  const usageBtn = document.getElementById('um-usage-btn');
+  if (usageBtn) usageBtn.classList.toggle('hidden', role !== 'manager');
 
   // メニュー内のチェックマーク切替（role-menu無効化に伴い要素が存在しない場合はスキップ）
   const chkDriver  = document.getElementById('role-check-driver');
@@ -7651,6 +7721,142 @@ async function saveTeamEdit(teamId) {
   }
 }
 
+/* ===== 利用状況（管理者のみ） =====
+   DAU/WAU/MAUの集計・推移グラフ表示。個人別の利用履歴一覧はUIとして実装しない
+   (集計値・推移グラフのみ)。生ログ(sessions)にはコードを残すため、個別調査が
+   必要な場合はFirestoreコンソール/クエリから辿れる。
+   画面を開くたびone-shotで取得する(onSnapshot常時購読は使わない)。集計画面は
+   開閉頻度が低い管理者専用画面のため、自動取得(one-shot)で読み取りコスト上十分 */
+
+let usageSessions = [];       // openUsageAnalytics中に取得した直近90日分のsessionsキャッシュ
+let usageViewMode = 'daily';  // 'daily' | 'weekly'
+
+async function openUsageAnalytics() {
+  closeUserMenu();
+  openModal(`
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title">📊 利用状況</div>
+        <button class="modal-close" onclick="closeModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="usage-error" class="login-error" style="display:none"></div>
+        <div id="usage-summary">読み込み中...</div>
+        <div style="display:flex;gap:8px;margin:14px 0">
+          <button id="usage-toggle-daily" class="chip active" onclick="switchUsageView('daily')">日次（30日）</button>
+          <button id="usage-toggle-weekly" class="chip" onclick="switchUsageView('weekly')">週次（12週）</button>
+        </div>
+        <div id="usage-chart"></div>
+      </div>
+    </div>
+  `);
+
+  try {
+    const cutoff = jstDateStr(new Date(Date.now() - 90 * 24 * 60 * 60 * 1000));
+    const snap = await fbDb.collection('sessions').where('date', '>=', cutoff).get();
+    usageSessions = snap.docs.map(d => d.data());
+    usageViewMode = 'daily';
+    renderUsageAnalytics();
+  } catch (err) {
+    const errEl = document.getElementById('usage-error');
+    if (errEl) {
+      errEl.textContent = `読み込みに失敗しました（${err.code || err.message}）`;
+      errEl.style.display = 'block';
+    }
+    const summaryEl = document.getElementById('usage-summary');
+    if (summaryEl) summaryEl.innerHTML = '';
+  }
+}
+
+function renderUsageAnalytics() {
+  const today = jstDateStr();
+  const thisWeek = dateStrToIsoWeek(today);
+  const thisMonth = today.slice(0, 7);
+  const dau = new Set(usageSessions.filter(s => s.date === today).map(s => s.code)).size;
+  const wau = new Set(usageSessions.filter(s => s.week === thisWeek).map(s => s.code)).size;
+  const mau = new Set(usageSessions.filter(s => s.date && s.date.slice(0, 7) === thisMonth).map(s => s.code)).size;
+
+  const summaryEl = document.getElementById('usage-summary');
+  if (summaryEl) {
+    summaryEl.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+        <div class="reach-stat-card">
+          <div class="reach-stat-num" style="color:var(--primary)">${dau}</div>
+          <div class="reach-stat-lbl">DAU（本日）</div>
+        </div>
+        <div class="reach-stat-card">
+          <div class="reach-stat-num" style="color:var(--safe)">${wau}</div>
+          <div class="reach-stat-lbl">WAU（今週）</div>
+        </div>
+        <div class="reach-stat-card">
+          <div class="reach-stat-num" style="color:var(--purple)">${mau}</div>
+          <div class="reach-stat-lbl">MAU（今月）</div>
+        </div>
+      </div>
+    `;
+  }
+  renderUsageChart();
+}
+
+function switchUsageView(mode) {
+  usageViewMode = mode;
+  const dailyBtn = document.getElementById('usage-toggle-daily');
+  const weeklyBtn = document.getElementById('usage-toggle-weekly');
+  if (dailyBtn) dailyBtn.classList.toggle('active', mode === 'daily');
+  if (weeklyBtn) weeklyBtn.classList.toggle('active', mode === 'weekly');
+  renderUsageChart();
+}
+
+function renderUsageChart() {
+  const host = document.getElementById('usage-chart');
+  if (!host) return;
+  let labels, values;
+
+  if (usageViewMode === 'daily') {
+    // 直近30日、日ごとのユニークcode数
+    const days = Array.from({ length: 30 }, (_, i) =>
+      jstDateStr(new Date(Date.now() - (29 - i) * 24 * 60 * 60 * 1000))
+    );
+    labels = days;
+    values = days.map(d => new Set(usageSessions.filter(s => s.date === d).map(s => s.code)).size);
+  } else {
+    // 直近12週、週ごとのユニークcode数(週境界の丸め誤差を避けるため重複除去しつつ順序維持)
+    const rawWeeks = Array.from({ length: 12 }, (_, i) =>
+      dateStrToIsoWeek(jstDateStr(new Date(Date.now() - (11 - i) * 7 * 24 * 60 * 60 * 1000)))
+    );
+    labels = [...new Set(rawWeeks)];
+    values = labels.map(w => new Set(usageSessions.filter(s => s.week === w).map(s => s.code)).size);
+  }
+
+  host.innerHTML = buildLineChartSvg(values, labels);
+}
+
+// 既存のドーナツチャート(showReach等)と同じ「外部ライブラリなし・生SVGをtemplate literalで組み立てる」流儀の折れ線グラフ
+function buildLineChartSvg(values, labels) {
+  const w = 600, h = 200, padL = 30, padR = 10, padT = 10, padB = 20;
+  const max = Math.max(1, ...values);
+  const stepX = values.length > 1 ? (w - padL - padR) / (values.length - 1) : 0;
+  const xOf = i => padL + i * stepX;
+  const yOf = v => padT + (h - padT - padB) * (1 - v / max);
+  const points = values.map((v, i) => `${xOf(i).toFixed(1)},${yOf(v).toFixed(1)}`).join(' ');
+  const dots = values.map((v, i) =>
+    `<circle cx="${xOf(i).toFixed(1)}" cy="${yOf(v).toFixed(1)}" r="2.5" fill="var(--primary)"/>`
+  ).join('');
+  const lastIdx = labels.length - 1;
+
+  return `
+    <svg viewBox="0 0 ${w} ${h}" style="width:100%;height:auto;display:block">
+      <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${h - padB}" stroke="var(--border)" stroke-width="1"/>
+      <line x1="${padL}" y1="${h - padB}" x2="${w - padR}" y2="${h - padB}" stroke="var(--border)" stroke-width="1"/>
+      <polyline points="${points}" fill="none" stroke="var(--primary)" stroke-width="2"/>
+      ${dots}
+      <text x="${padL}" y="${h - 4}" font-size="9" fill="var(--text-muted)">${escHtml(labels[0] || '')}</text>
+      <text x="${w - padR}" y="${h - 4}" font-size="9" text-anchor="end" fill="var(--text-muted)">${escHtml(labels[lastIdx] || '')}</text>
+      <text x="${padL - 4}" y="${padT + 6}" font-size="9" text-anchor="end" fill="var(--text-muted)">${max}</text>
+    </svg>
+  `;
+}
+
 // 認証ゲート：ログイン状態に応じて画面を切り替える
 fbAuth.onAuthStateChanged(async (user) => {
   if (!user) {
@@ -7673,6 +7879,9 @@ fbAuth.onAuthStateChanged(async (user) => {
     // Firestoreの role("admin"/"driver") → 内部表記('manager'/'driver') へマッピング
     // st.currentUid はモックusers配列への暫定マッピング（次フェーズで統合予定）
     setRole(fbUser.role === 'admin' ? 'manager' : 'driver');
+
+    // 利用状況計測(DAU/WAU/MAU用)。失敗してもログイン自体は継続させる
+    recordSession();
 
     // 管理者は報告(reports)全件リスナーをログイン時から開始する
     // (アプリ起動中のみのPWA通知はこのリスナーのdocChangesを起点に発火する)
@@ -7706,6 +7915,9 @@ fbAuth.onAuthStateChanged(async (user) => {
 });
 
 /* ===== 初期化 ===== */
+// ヘッダーバッジ・ユーザーメニューのバージョン表記をAPP_VERSION定数から反映(静的HTML直書きの値は初期表示用フォールバック)
+document.getElementById('version-badge').textContent = 'Ver.' + APP_VERSION;
+document.getElementById('um-version-subtitle').textContent = 'Ver. ' + APP_VERSION + ' · 安全配送まとめてアプリ';
 renderAnn();
 renderChannelChips();
 renderChat();
