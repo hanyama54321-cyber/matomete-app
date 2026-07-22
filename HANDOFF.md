@@ -5,15 +5,26 @@
 ## プロジェクト概要
 
 - **リポジトリ**: `matomete-app`(安全配送まとめてアプリ)。単一ファイルSPA([index.html](index.html)、約7300行)+ Firebase(Firestore/Auth/Storage)。
-- **ブランチ運用**: `main`=公開中のモック版(GitHub Pages)、`develop`=Firebase接続版(開発中)。リリース時は`develop`→`main`マージ(手順は[README.md](README.md)参照、**今回のセッションでもmainへのマージは未実施**)。
+- **ブランチ運用**: `main`=本番公開中(GitHub Pages、Firebase接続版)、`develop`=開発中。リリース時は`develop`→`main`マージ(手順は[README.md](README.md)参照)。
 - **Firebaseプロジェクト**: `anzen-matomete-app`(Blazeプラン、asia-northeast1)。
-- **アプリバージョン**: v0.2(今回のセッションで0.1から更新)。
+- **アプリバージョン**: **v0.2.2**(本セッションでmainへ本公開済み)。
 
 ## これまでに完了した作業(直近コミット)
 
-developブランチで、報告・手順書・KYT・ユーザーメニュー・周知の各タブをモック配列→Firestore接続へ移行済み。v0.2としてmainへ本公開済み(GitHub Pages)。今回のセッションでは、**WAU/DAU/MAU利用状況計測**を実装した。
+developブランチで、報告・手順書・KYT・ユーザーメニュー・周知の各タブをモック配列→Firestore接続へ移行済み。WAU/DAU/MAU利用状況計測(v0.2.1)・PWA standaloneボトムナビ余白修正(v0.2.2)まで**mainへ本公開済み**(GitHub Pages)。
 
-### 今回のセッション: 利用状況計測(DAU/WAU/MAU)
+### 本セッション: PWA standalone表示のボトムナビ下セーフエリア余白修正(v0.2.2・mainへ本公開済み)
+
+iPhoneのホーム画面追加(standalone)表示で、`#bottom-nav`(下部タブバー)のさらに下に地の背景色(`var(--bg)`)の白い帯が見えるという実機報告への対応。
+
+1. **原因の推定**: `#bottom-nav`の祖先(`body`/`#app`/`header`)に`transform`/`filter`/`will-change`は無く、`position:fixed`のcontaining blockが意図せずズレている可能性は低いと判断。CSSの記述自体(`position:fixed; bottom:0` + `padding-bottom: env(safe-area-inset-bottom)`)は理論上正しく、実機のみで症状が出ることから、**iOS Safari standalone表示で`backdrop-filter`併用時にセーフエリア領域の背景描画が欠落する既知の挙動**が濃厧と判断した。このサンドボックス環境では`env(safe-area-inset-*)`が常に0のため実機再現・検証はできない。
+2. **修正内容**([index.html:158-186](index.html:158)): 原因の特定に依存しない防御的な対策として、`#bottom-nav::after`疑似要素を追加。`padding-bottom`が確保するセーフエリア領域(`bottom:0; height:env(safe-area-inset-bottom)`)に、ナビ本体と同色(`rgba(255,255,255,.96)`)の背景を明示的に重ね塗りする。非standalone表示では`env()=0`のため`height:0`の不可視要素となり既存表示に影響しない(ブラウザプレビューで`getComputedStyle`により`afterHeight: "0px"`を確認済み)。
+3. **`#main`のpadding-bottom(76px)は変更していない**: `.nav-item`のmin-height等から実際のナビ表示高さは約55px程度で76pxはやや余裕があるが、これは報告症状(ナビの**下**の余白)とは無関係(ナビの上のスクロール領域に余分な空白ができるだけで実害なし)と判断し、見積もり誤りのリスクを避けるため触れていない。
+4. **バージョン更新**: `APP_VERSION`を`0.2.1`→`0.2.2`に更新(一元化済み定数のため1箇所の変更で全表示箇所+計測`appVersion`に反映)。
+5. **リリース**: develop(`4f1bbf7`)→main `--no-ff`マージ(`0f20be7`)、タグ`v0.2.2`(ロールバック用`v0.2.1-pre-navfix`も現mainの旧先端`0f82399`に作成済み)。GitHub Pagesで`Ver.0.2.2`表示・`hasFirebase:true`・コンソールエラーなしをライブ確認済み。
+6. **未確認事項(次回セッションで要フォローアップ)**: **南野さんの実機(iPhone、ホーム画面追加アプリ)での白帯解消の確認がまだ**。もし残っている場合は`git reset`等ではなく`v0.2.1-pre-navfix`タグを起点に切り戻すか追加修正で再リリースする。次回セッション開始時、南野さんに確認結果を聞くこと。
+
+### 前セッション: 利用状況計測(DAU/WAU/MAU)(v0.2.1・mainへ本公開済み)
 
 2026-06-30に設計だけ固めていたKPI計測(層1: 利用・定着の可視化)を実装。元設計は`users`が`uid`ベースだった頃のものだったため、現行の`users/{code}`(乗務員コード5桁がドキュメントID)へ読み替えて実装した。
 
@@ -22,7 +33,7 @@ developブランチで、報告・手順書・KYT・ユーザーメニュー・�
 3. **集計画面**: ユーザーメニューに「利用状況」を新設(`openUsageAnalytics()`、乗務員マスタ・班編成管理と同型のモーダル+one-shot取得パターン、`onSnapshot`は使わない)。直近90日分を`where('date','>=',...)`で絞って一括取得し、DAU/WAU/MAU(ユニーク人数のみ、個人別一覧は実装しない)と日次30日/週次12週の折れ線グラフをクライアント側集計で表示。折れ線グラフは既存のドーナツチャート(`showReach`等)と同じ「外部ライブラリなし・生SVGをtemplate literalで組み立てる」流儀で新規実装(`buildLineChartSvg()`)。
 4. **バージョン文字列の一元化**: ユーザー指示により、`appVersion`計測値と表示用バージョン文字列(ヘッダーバッジ・ユーザーメニュー・アプリ情報画面)を`APP_VERSION`定数1箇所に統一。静的HTML側2箇所(`#version-badge`/`#um-version-subtitle`)は初期化処理でJSから`textContent`を上書きする形にした。次回バージョン更新時は`APP_VERSION`の値を変えるだけでよい。
 5. **重要な制約(設計どおりだが要認識)**: `sessions`は`allow update, delete: if false`(**admin含め誰も削除できない、追記のみ**)。検証時に本番Firestoreへ書き込んだテスト用`sessions`ドキュメント(AAAAA/10168、2026-07-22分)は**削除できず恒久的に残る**(`users.lastActiveDate`は自己更新可能なため元に戻したが、`sessions`のレコード自体は消せない)。今後の検証でも同様にテスト分のレコードが残り続ける前提で運用すること。
-6. **計測開始日について**: 本機能はdevelopにのみpush済みでmainには未反映。**実際の利用者データが積み上がるのは、この変更がmainへマージされGitHub Pagesで公開されて以降のみ**。過去のログインは遡って計測できない。
+6. **計測開始日について**: v0.2.1として既にmainへマージ・GitHub Pages公開済み(**実際の利用者データは公開日以降のみ蓄積される**、過去のログインは遡って計測できない)。
 
 ### 前セッション: リリース前の細部変更バッチ(v0.2)
 
@@ -101,7 +112,7 @@ npx firebase-tools deploy --only firestore:rules,firestore:indexes --project anz
 npx firebase-tools deploy --only storage --project anzen-matomete-app
 ```
 
-現在144件のルールテストが全pass(`test/rules/{users,reports,manuals,storage,kyt,teams,announcements,channels,sessions}.test.js`)。`firestore.rules`(sessions新設・users.lastActiveDate自己更新追加)は今回のセッションで既にデプロイ済み。
+現在144件のルールテストが全pass(`test/rules/{users,reports,manuals,storage,kyt,teams,announcements,channels,sessions}.test.js`)。`firestore.rules`(sessions新設・users.lastActiveDate自己更新追加)はv0.2.1リリース時にデプロイ済み。v0.2.2(ボトムナビ余白修正)はCSS-only変更のためrules/indexesの再デプロイは不要だった。
 
 ## コミット時の運用ルール(このセッションで一貫していた点)
 
@@ -114,6 +125,6 @@ npx firebase-tools deploy --only storage --project anzen-matomete-app
 
 ## 次にやるとよさそうなこと(優先度は南野さん判断)
 
-1. 利用状況計測(DAU/WAU/MAU)をdevelopで実機確認のうえ、早めにmainへマージする。**mainへ反映されるまで実利用データは蓄積されない**ため、早期リリースするほど立ち上がりデータを取り逃さない。
+1. **[最優先・要確認]** v0.2.2のPWA standaloneボトムナビ余白修正について、南野さんの実機(iPhone、ホーム画面追加アプリ)で白帯が解消されているか確認結果を聞く。解消されていなければ`v0.2.1-pre-navfix`タグを起点に切り戻すか追加修正を検討。
 2. `st.currentUid`依存の残存箇所(モック周知データ・チャット未読・`recalcTeamCounts()`)を`fbUser.code`ベースへ統一(TECH_DEBT.md #1)。
-3. developに他の未反映変更が無いか確認しつつ、mainへのリリース(README.mdのリリース手順に従う)。
+3. developに他の未反映変更が無いか確認しつつ、次のリリースがあればREADME.mdのリリース手順に従う。

@@ -152,13 +152,17 @@ header {
   flex: 1;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding: 16px calc(16px + env(safe-area-inset-right)) calc(76px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));
+  overscroll-behavior-y: contain;
+  padding: 16px calc(16px + env(safe-area-inset-right)) 16px calc(16px + env(safe-area-inset-left));
 }
 
-/* ===== ボトムナビ ===== */
+/* ===== ボトムナビ =====
+   position:fixedで画面最下端に固定していたが、iOS Safari standalone表示で
+   #mainの慣性スクロール中にfixed要素が追従しきれず揺れる既知の挙動があるため、
+   #app(flex縦カラム、height:100dvh)のフロー内最終要素として配置する方式に変更。
+   #mainがflex:1で残り領域を埋めるため、フローのままでも見た目上は最下段に固定表示される。 */
 #bottom-nav {
-  position: fixed;
-  bottom: 0; left: 0; right: 0;
+  flex-shrink: 0;
   background: rgba(255,255,255,.96);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -171,17 +175,6 @@ header {
   z-index: 100;
   display: flex;
   justify-content: center;
-}
-/* standalone表示のiOS Safariでbackdrop-filter併用時にセーフエリア部分の背景が
-   透けて見える既知の挙動への対策。padding-bottomで確保した領域(ちょうどその内側)に
-   ナビ本体と同色の背景を明示的に重ね塗りして地の色が見えないようにする。
-   ブラウザ表示時はenv()が0になるためheight:0の不可視要素となり既存表示に影響しない */
-#bottom-nav::after {
-  content: '';
-  position: absolute;
-  left: 0; right: 0; bottom: 0;
-  height: env(safe-area-inset-bottom);
-  background: rgba(255,255,255,.96);
 }
 .nav-inner { display: flex; width: 100%; max-width: 600px; }
 .nav-item {
@@ -2482,7 +2475,7 @@ header {
 // ヘッダーバッジ・ユーザーメニュー・アプリ情報画面・利用状況計測(sessions.appVersion)は
 // すべてこの定数を参照する(#version-badge/#um-version-subtitleへは初期化処理でJSから反映、
 // アプリ情報画面・recordSession()は関数内で直接参照)
-const APP_VERSION = '0.2.2';
+const APP_VERSION = '0.2.3';
 
 /* ===== データ ===== */
 
