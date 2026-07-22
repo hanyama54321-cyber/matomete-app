@@ -172,6 +172,17 @@ header {
   display: flex;
   justify-content: center;
 }
+/* standalone表示のiOS Safariでbackdrop-filter併用時にセーフエリア部分の背景が
+   透けて見える既知の挙動への対策。padding-bottomで確保した領域(ちょうどその内側)に
+   ナビ本体と同色の背景を明示的に重ね塗りして地の色が見えないようにする。
+   ブラウザ表示時はenv()が0になるためheight:0の不可視要素となり既存表示に影響しない */
+#bottom-nav::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: env(safe-area-inset-bottom);
+  background: rgba(255,255,255,.96);
+}
 .nav-inner { display: flex; width: 100%; max-width: 600px; }
 .nav-item {
   flex: 1;
@@ -2471,7 +2482,7 @@ header {
 // ヘッダーバッジ・ユーザーメニュー・アプリ情報画面・利用状況計測(sessions.appVersion)は
 // すべてこの定数を参照する(#version-badge/#um-version-subtitleへは初期化処理でJSから反映、
 // アプリ情報画面・recordSession()は関数内で直接参照)
-const APP_VERSION = '0.2.1';
+const APP_VERSION = '0.2.2';
 
 /* ===== データ ===== */
 
