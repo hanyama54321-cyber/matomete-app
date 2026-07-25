@@ -51,10 +51,10 @@ const fbDb   = firebase.firestore();
 const fbStorage = firebase.storage();
 const fbFunctions = firebase.app().functions('asia-northeast1');
 
-// FCM Web Push用VAPID鍵。Firebase Console → プロジェクト設定 → Cloud Messaging →
-// ウェブ構成 → 鍵ペアの生成、で取得した公開鍵をここに設定する(手動作業、南野さんが用意)。
-// 未設定の間はgetToken()が失敗し、通知の許可操作自体はできるがトークン登録はスキップされる
-const FCM_VAPID_KEY = '';
+// FCM Web Push用VAPID公開鍵(Firebase Console → プロジェクト設定 → Cloud Messaging →
+// ウェブ構成 → 鍵ペアの生成、で取得。公開鍵のためリポジトリに含めてよい)。
+// getToken({ vapidKey })に渡す唯一の参照元。ここ以外に直書きしないこと
+const FCM_VAPID_KEY = 'BCd2jTEyxVABwbdktFURmnKhXr0gSvIYxI0rorVPMGcko6gW6zHx_W67ZNPc7VWiC8MIOOWWGdi44nuKKynkZiY';
 </script>
 <style>
 /* ===== テーマ変数 ===== */
