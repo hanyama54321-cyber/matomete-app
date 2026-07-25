@@ -67,16 +67,14 @@ LINE連携(LINEログイン・LIFF等)はセキュリティ上の懸念により
 - **`persistentLocalCache`/`enablePersistence`(次フェーズ・単独対応可)**: 未実装。`index.html`の`const fbDb = firebase.firestore();`はデフォルト設定のままで、オフラインキャッシュは無効。有効化はアプリ全体で共有する`fbDb`インスタンスに影響するため、チャット以外の既存リスナー(announcements/manuals/kyt/reports/users)への影響確認を含めて対応する。
 - **90日超メッセージのアーカイブジョブ(次フェーズ)**: 未実装。`functions/`基盤は項番8で新設済みのため、次に着手する際はスケジュール関数(`onSchedule`)を追加する形で対応できる。
 
-## 8. FCMプッシュ通知(v0.3で実装。段階的展開の途中)
+## 8. FCMプッシュ通知(v0.3で実装。段階的展開はStage2まで完了)
 
 このアプリで初めて`functions/`(Cloud Functions v2、Node 20、`asia-northeast1`)を新設した。5トリガー(`onAnnouncementNotify`/`onReportCreated`/`onReportReplyNotify`/`onManualCreated`/`cleanupStaleTokens`)+3callable(`sendUnreadReminder`/`subscribeToReport`/`estimateNotifyAudience`)。旧来の「アプリを開いている間だけ」の`Notification` API即時表示機構(`localStorage['fbNotifOptIn']`、`notifyNewReport`/`notifyNewAnnouncement`等)は撤去し、FCMに完全統合した。
 
-**段階的展開(オプトイン・ゲート)の現在地**:
-- Stage0(mainマージ直後): 通知オプトインUIは`fbUser.role==='admin'`、または`config/notifications.openToAllUsers===true`のときのみ表示(`canShowNotifyOptIn()`)。`config/notifications`は`{openToAllUsers:false}`で本番Firestoreに作成済み
-- Stage1(管理者実機検証): 未実施。南野さんの実機(iOS standalone / Android)でイベント発火・受信確認が必要
-- Stage2(一般開放): `config/notifications.openToAllUsers`を`true`に更新するだけでよい(コード変更・再マージ不要)
-
-**Stage0〜2の間の既知の空白期間**: 旧機構を撤去済みのため、一般ドライバーには通知機能が存在しない状態になる。旧機構はフォアグラウンド限定(アプリを開いている間だけ)で実質的な損失は小さいためこの空白は許容しているが、**Stage2への移行を長く保留しないこと**(南野さんの実機確認が完了次第、速やかにStage2へ進める)。
+**段階的展開(オプトイン・ゲート)の経緯**:
+- Stage0(2026-07-25、mainマージ直後): 通知オプトインUIは`fbUser.role==='admin'`、または`config/notifications.openToAllUsers===true`のときのみ表示(`canShowNotifyOptIn()`)。`config/notifications`は`{openToAllUsers:false}`で本番Firestoreに作成
+- Stage1(2026-07-25、南野さんの実機検証): iOS standalone / Androidの実機で5イベントの受信・ロック画面文言・タップ後の遷移・ログアウト時のトークン削除を確認済み
+- **Stage2(2026-07-25、一般開放・適用済み)**: `config/notifications.openToAllUsers`を`true`に更新済み。**一般ドライバーが実際のログインでメニューに「通知設定」項目が表示されることの実機確認は未実施**(ブラウザ自動操作では認証ログインを経由できないため。南野さんまたはドライバーアカウントでの確認を推奨)。問題があれば`openToAllUsers`を`false`に戻すだけでStage0相当に即座に戻せる
 
 **ユーザーコード変換規則の重複**: `request.auth.token.email`からユーザーコードを導く変換(`myCode()`相当)が、`firestore.rules`の`myCode()`と`functions/lib/auth.js`の`codeFromAuth()`の2箇所に存在する(SW/index.htmlのFirebase設定二重管理と同じ構図)。将来ログイン方式(疑似メールの形式等)を変える際は、両方を同時に直すこと。
 

@@ -50,16 +50,14 @@
 
 ### 段階的展開(Stage0〜2)の現状
 
-**mainマージ・本番公開済み、Stage1も完了。現在Stage2への移行が南野さんの判断待ち。** develop→main `--no-ff`マージ(`dda1ef9`)、タグ`v0.3`。GitHub Pagesで`Ver.0.3`表示・コンソールエラーなしをライブ確認済み。マージ後、以下を本番URLで確認済み:
-- `config/notifications.openToAllUsers`が`false`のままであること(REST APIで直接確認)
-- driverロールをシミュレートし、ユーザーメニューに「通知設定」項目が表示されないこと(`#um-notif-btn`が`hidden`)
-- 周知・手順書・報告・チャット・KYTタブの表示に回帰がないこと
+**Stage2適用済み(2026-07-25)。`config/notifications.openToAllUsers`を`true`に更新した。** mainマージ・本番公開(develop→main `--no-ff`、`dda1ef9`、タグ`v0.3`)、VAPID鍵設定、Stage1(南野さんの実機での5イベント受信・ロック画面文言・タップ後の遷移・ログアウト時のトークン削除確認)を経て、南野さんの判断によりStage2へ移行した。
 
-VAPID鍵は南野さんが生成した公開鍵を`FCM_VAPID_KEY`に設定済み。
+- サーバー側の値は認証済みREST API読み取りで`true`(更新時刻込み)を確認済み
+- クライアント側の表示切替(`#um-notif-btn`の表示、`updateNotifMenuVisibility()`)は、Stage0時点で`openToAllUsers:true`を模擬注入して動作確認済み(このロジック自体はconfig変更の影響を受けない)
+- **ブラウザの自動操作では実際の認証ログインを経由できないため、Stage2移行後に「一般ドライバーが実機/実際のログインでメニューに『通知設定』が表示されること」は本セッションでは直接確認できていない。** 南野さんまたはドライバーアカウントでの実機確認を推奨(HANDOFF.md記載の申し送り事項どおり)
+- Stage0〜2の間の通知空白期間はこれで解消。旧機構撤去により一般ドライバーが通知機能を持たなかった期間は終了した
 
-**Stage1完了(2026-07-25、南野さんの実機で実施)**: iOS standalone / Androidの実機で5イベントすべての受信、ロック画面の文言、タップ後の遷移、ログアウト時のトークン削除を確認済み。**この検証はメニュー項目のStage0ゲート修正(`96db84f`)より前の版で実施されている**が、その修正は通知の配信経路(Cloud Functions側の送信ロジック)には影響しないため南野さんの判断により再検証は不要としている。
-
-**次のアクション: Stage2(南野さんの判断待ち)**。`config/notifications.openToAllUsers`を`true`に更新するだけでよい(コード変更・再マージ不要)。Stage2でフラグをtrueにした際は、乗務員のメニューに「通知設定」が表示されることを実機で確認する(`96db84f`の修正箇所の初めての実機確認になる)。Stage0〜2の間、旧機構撤去により一般ドライバーは通知機能を持たない空白期間になっている(許容済み、詳細はTECH_DEBT.md項目8。長く保留しないこと)。
+万一問題が見つかった場合は、`config/notifications.openToAllUsers`を`false`へ戻すだけでStage0相当に即座に戻せる(コード変更不要)。それでも解消しない場合は`v0.2.3-pre-fcm`タグへのロールバックを検討。
 
 ### 未検証・既知のリスク
 
@@ -146,7 +144,7 @@ iPhoneのホーム画面追加(standalone)表示で、`#bottom-nav`(下部タブ
   5. 周知タブへのメール通知(将来構想。詳細は[docs/メール通知_将来実装メモ.md](docs/メール通知_将来実装メモ.md))。
   6. LINE連携は見送り(決定記録)。
   7. チャットの読み取りコスト設計(初回件数是正のみ対応済み、`persistentLocalCache`・90日超アーカイブは未対応)。
-  8. **FCMプッシュ通知(v0.3)**: mainマージ済み・Stage1完了(2026-07-25、実機検証済み)。Stage2(`config/notifications.openToAllUsers`をtrueに)は南野さんの判断待ち。ユーザーコード変換規則(`myCode()`相当)がrulesとfunctionsの2箇所にある点、Stage0〜2の通知空白期間の申し送りを含む。
+  8. **FCMプッシュ通知(v0.3)**: mainマージ済み・Stage1完了(2026-07-25、実機検証済み)・**Stage2適用済み(2026-07-25、`config/notifications.openToAllUsers`をtrueに更新)**。一般ドライバーへのメニュー項目表示は実機での最終確認が未実施(申し送り参照)。ユーザーコード変換規則(`myCode()`相当)がrulesとfunctionsの2箇所にある点も引き続き記録。
 
 ## 開発環境の状態(このマシン固有)
 
@@ -191,6 +189,6 @@ npx firebase-tools deploy --only storage --project anzen-matomete-app
 
 ## 次にやるとよさそうなこと(優先度は南野さん判断)
 
-1. **[最優先]** v0.3はmainへマージ・本番公開済み、VAPID鍵も設定済み、**Stage1(南野さんの実機での通知許可→5イベント発火→受信確認)も2026-07-25に完了済み**(iOS standalone / Android、ロック画面文言・タップ後の遷移・ログアウト時のトークン削除まで確認済み)。**残るはStage2(`config/notifications.openToAllUsers`をtrueに更新)の南野さんの判断待ち。** コード変更・再マージ不要。長く保留しないこと。Stage2で`true`にした際は、乗務員のメニューに「通知設定」が表示されることを実機で確認する(メニュー項目のゲート修正`96db84f`はStage1検証より後に入ったため、この点は未確認)。万一問題が見つかった場合は`v0.2.3-pre-fcm`タグへのロールバックを検討。
+1. **[最優先]** v0.3はmainへマージ・本番公開済み、VAPID鍵も設定済み、Stage1(2026-07-25)・**Stage2(2026-07-25、`config/notifications.openToAllUsers`をtrueに更新)も完了済み。** **残タスク: 一般ドライバーのメニューに「通知設定」が実際に表示されることを実機/実ログインで確認する**(メニュー項目のゲート修正`96db84f`はStage1検証より後に入ったため、この点だけ未確認。ブラウザ自動操作では実ログインを経由できず本セッションでは検証不可)。問題があれば`config/notifications.openToAllUsers`を`false`に戻すだけでStage0相当に即座に戻せる(コード変更不要)。それでも解消しない場合は`v0.2.3-pre-fcm`タグへのロールバックを検討。
 3. `st.currentUid`依存の残存箇所(モック周知データ・チャット未読・`recalcTeamCounts()`)を`fbUser.code`ベースへ統一(TECH_DEBT.md #1)。
 4. developに他の未反映変更が無いか確認しつつ、次のリリースがあればREADME.mdのリリース手順に従う。
