@@ -31,6 +31,8 @@
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-storage-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-messaging-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-functions-compat.js"></script>
 <script>
 const firebaseConfig = {
   apiKey: "AIzaSyBDEk7luVCDDJooPwG6BU0r1qX8GROc6rY",
@@ -41,10 +43,18 @@ const firebaseConfig = {
   appId: "1:163103621501:web:53410bbe65778f5d154c14",
   measurementId: "G-FQKRCR30BY"
 };
+// この設定はfirebase-messaging-sw.jsのfirebaseConfigと同期させること。
+// SW側はこの変数を参照できず、値を変更したら両方直す必要がある
 firebase.initializeApp(firebaseConfig);
 const fbAuth = firebase.auth();
 const fbDb   = firebase.firestore();
 const fbStorage = firebase.storage();
+const fbFunctions = firebase.app().functions('asia-northeast1');
+
+// FCM Web Push用VAPID鍵。Firebase Console → プロジェクト設定 → Cloud Messaging →
+// ウェブ構成 → 鍵ペアの生成、で取得した公開鍵をここに設定する(手動作業、南野さんが用意)。
+// 未設定の間はgetToken()が失敗し、通知の許可操作自体はできるがトークン登録はスキップされる
+const FCM_VAPID_KEY = '';
 </script>
 <style>
 /* ===== テーマ変数 ===== */
@@ -2266,6 +2276,7 @@ header {
           </div>
           <button id="fb-btn" class="btn btn-primary" style="width:100%" disabled onclick="submitFb()">送信する</button>
           <p id="fb-note" style="font-size:12px;color:var(--text-muted);text-align:center;margin-top:10px">スイッチをONにすると匿名で送信できます</p>
+          <p style="font-size:11px;color:var(--text-muted);text-align:center;margin-top:4px">送信すると管理者に通知が届きます</p>
         </div>
       </div>
 
@@ -2292,18 +2303,6 @@ header {
         <div class="admin-banner">
           <span>🛠️</span>
           <span>管理者モード — 報告の確認・対応・出力ができます</span>
-        </div>
-
-        <!-- 通知オプトイン -->
-        <div class="card" style="margin-bottom:12px">
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-            <span style="font-size:22px">🔔</span>
-            <div style="flex:1">
-              <div style="font-weight:700;font-size:14px;color:var(--navy)">新着報告の通知</div>
-              <div style="font-size:11px;color:var(--text-sub)" id="fb-notif-status">未登録 — このアプリを開いている間のみ通知します</div>
-            </div>
-          </div>
-          <button id="fb-notif-btn" class="btn btn-ghost" style="width:100%;font-size:13px" onclick="enableReportNotifications()">🔔 新着報告の通知を受け取る</button>
         </div>
 
         <!-- スプレッドシート連携カード -->
@@ -2475,7 +2474,7 @@ header {
 // ヘッダーバッジ・ユーザーメニュー・アプリ情報画面・利用状況計測(sessions.appVersion)は
 // すべてこの定数を参照する(#version-badge/#um-version-subtitleへは初期化処理でJSから反映、
 // アプリ情報画面・recordSession()は関数内で直接参照)
-const APP_VERSION = '0.2.3';
+const APP_VERSION = '0.3';
 
 /* ===== データ ===== */
 
@@ -2716,7 +2715,6 @@ const MOCK_ANNOUNCEMENTS = [
    実装せず、公開は管理者の「今すぐ配信」操作のみで行う。 */
 let announcements = [...MOCK_ANNOUNCEMENTS]; // Firestoreミラー + モックの連結後配列
 let announcementsUnsub = null;               // announcementsコレクションリスナーのunsubscribe
-let announcementsInitialLoadDone = false;    // 初回スナップショット判定(通知の誤発火防止)
 let annReadsUnsub = null;                    // 詳細画面で開いているお知らせのreadsリスナーのunsubscribe
 let annCurrentReads = {};                    // 詳細画面で購読中のreads一覧 { [code]: {code,name,readAt,acked,ackedAt} }
 let annAllDrivers = [];                      // 管理者向け既読率計算用の全ドライバーキャッシュ
@@ -2776,7 +2774,6 @@ let reportsAdminUnsub = null;        // 管理者用reportsリスナーのunsubs
 let myReportsUnsub = null;           // 自分の報告(記名分)リスナーのunsubscribe
 let publicReportsUnsub = null;       // みんなの報告リスナーのunsubscribe
 let myAnonReports = [];              // localStorage追跡の匿名報告(get済みキャッシュ)
-let reportsAdminInitialLoadDone = false; // 初回スナップショット判定(通知の誤発火防止)
 
 const reportStatusMeta = {
   open:        { icon: '🔴', label: '未対応',  color: 'var(--danger)' },
@@ -3022,6 +3019,112 @@ async function recordSession() {
   }
 }
 
+/* ===== FCMプッシュ通知: config/notifications ミラー(Stage0ゲート判定用) ===== */
+let notificationsConfig = null;
+let notificationsConfigUnsub = null;
+
+function attachNotificationsConfigListener() {
+  if (notificationsConfigUnsub) { notificationsConfigUnsub(); notificationsConfigUnsub = null; }
+  notificationsConfigUnsub = fbDb.collection('config').doc('notifications').onSnapshot(snap => {
+    notificationsConfig = snap.exists ? snap.data() : { openToAllUsers: false };
+  }, err => {
+    console.error('通知設定configの取得エラー:', err);
+    notificationsConfig = { openToAllUsers: false };
+  });
+}
+
+// Stage0ゲート: 通知オプトインUIをこのユーザーに見せてよいか(admin、またはStage2で開放済み)
+function canShowNotifyOptIn() {
+  return !!(fbUser && (fbUser.role === 'admin' || (notificationsConfig && notificationsConfig.openToAllUsers === true)));
+}
+
+/* ===== FCMプッシュ通知: トークンライフサイクル ===== */
+
+// トークン文字列からtokenId(SHA-256ハッシュ)を算出する。Functions側(functions/lib/hash.js)と
+// 同じSHA-256方式(実装は別々)。同一端末の再登録が同じドキュメントを上書きする形になり、
+// 冪等・重複防止になる。crypto.subtleはセキュアコンテキスト(HTTPS/localhost)限定
+async function sha256Hex(str) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function fcmSupported() {
+  return ('serviceWorker' in navigator) && ('Notification' in window)
+    && (typeof firebase.messaging.isSupported !== 'function' || firebase.messaging.isSupported());
+}
+
+async function upsertFcmToken(token, tokenIdArg) {
+  const tokenId = tokenIdArg || await sha256Hex(token);
+  await fbDb.collection('users').doc(fbUser.code).collection('tokens').doc(tokenId).set({
+    token,
+    platform: detectPlatform(),
+    ua: navigator.userAgent || '',
+    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+    lastSeenAt: firebase.firestore.FieldValue.serverTimestamp(),
+  }, { merge: true });
+  localStorage.setItem('fbFcmTokenId', tokenId);
+}
+
+// 通知許可済み(Notification.permission==='granted')の場合に、SW登録→トークン取得→
+// Firestore保存までを行う。許可を求めるダイアログ自体はここでは出さない
+// (要件: ページ読み込み時に自動でrequestPermission()しない。呼ぶのはopenNotifSettings()側)
+async function registerFcmTokenIfPossible() {
+  if (!fbUser || !canShowNotifyOptIn() || !fcmSupported()) return;
+  if (Notification.permission !== 'granted') return;
+  if (!FCM_VAPID_KEY) { console.warn('FCM_VAPID_KEY未設定のためトークン登録をスキップします'); return; }
+  try {
+    const reg = await navigator.serviceWorker.register('firebase-messaging-sw.js', { scope: '/matomete-app/' });
+    const token = await firebase.messaging().getToken({ vapidKey: FCM_VAPID_KEY, serviceWorkerRegistration: reg });
+    if (token) await upsertFcmToken(token);
+  } catch (e) {
+    console.error('FCMトークン登録エラー:', e);
+  }
+}
+
+// アプリ起動のたびに呼ぶ。Web SDKにonTokenRefreshは無いため、毎回getToken()で現在値を
+// 取得し、保存済みと異なれば新規保存+旧ドキュメント削除、同じなら生存確認(lastSeenAt)のみ更新する
+async function refreshFcmTokenIfNeeded() {
+  if (!fbUser || !canShowNotifyOptIn() || !fcmSupported()) return;
+  if (Notification.permission !== 'granted' || !FCM_VAPID_KEY) return;
+  try {
+    const reg = await navigator.serviceWorker.register('firebase-messaging-sw.js', { scope: '/matomete-app/' });
+    const token = await firebase.messaging().getToken({ vapidKey: FCM_VAPID_KEY, serviceWorkerRegistration: reg });
+    if (!token) return;
+    const tokenId = await sha256Hex(token);
+    const storedTokenId = localStorage.getItem('fbFcmTokenId');
+    if (storedTokenId === tokenId) {
+      await fbDb.collection('users').doc(fbUser.code).collection('tokens').doc(tokenId)
+        .update({ lastSeenAt: firebase.firestore.FieldValue.serverTimestamp() }).catch(() => {});
+      return;
+    }
+    if (storedTokenId) {
+      await fbDb.collection('users').doc(fbUser.code).collection('tokens').doc(storedTokenId).delete().catch(() => {});
+    }
+    await upsertFcmToken(token, tokenId);
+  } catch (e) {
+    console.error('FCMトークン更新確認エラー:', e);
+  }
+}
+
+// ログアウト時にこの端末のトークンドキュメントを削除し、deleteToken()を呼ぶ。
+// 忘れると、同じ端末を別の乗務員が使った場合に前の利用者宛の通知が届いてしまう(最優先要件)
+async function deleteFcmTokenForThisDevice() {
+  const tokenId = localStorage.getItem('fbFcmTokenId');
+  localStorage.removeItem('fbFcmTokenId');
+  if (tokenId && fbUser) {
+    try {
+      await fbDb.collection('users').doc(fbUser.code).collection('tokens').doc(tokenId).delete();
+    } catch (e) {
+      console.error('FCMトークン削除エラー:', e);
+    }
+  }
+  try {
+    if (fcmSupported()) await firebase.messaging().deleteToken();
+  } catch (e) {
+    console.error('deleteToken()エラー:', e);
+  }
+}
+
 const priorityMap = {
   high:   { label:'重要', color:'var(--danger)', icon:'🔴' },
   normal: { label:'通常', color:'var(--primary)', icon:'🔵' },
@@ -3199,46 +3302,184 @@ function refreshUserMenuHeader() {
   if (avatarTextEl) avatarTextEl.textContent = initial;
 }
 
+// 実際に発火する5イベントに1:1対応させたトグル項目(旧「チャットメッセージ」はプッシュしない方針のため削除)
+const NOTIFY_PREF_ITEMS = [
+  { key: 'mustReadAnnouncement', label: '必読お知らせ', desc: '必読指定のお知らせが投稿されたとき' },
+  { key: 'unreadReminder', label: '未読リマインダー', desc: '管理者が未読者へ呼びかけたとき' },
+  { key: 'manualAdded', label: '手順書の追加', desc: '新しい手順書が追加されたとき' },
+  { key: 'reportReply', label: '報告への回答', desc: '自分の報告に管理者から回答があったとき' },
+  { key: 'newReportAdmin', label: '新規報告の通知', desc: 'ドライバーから新しい報告が届いたとき', adminOnly: true },
+];
+
 function openNotifSettings() {
   closeUserMenu();
+  if (!canShowNotifyOptIn()) {
+    // Stage0: role==='admin' もしくは config/notifications.openToAllUsers===true になるまでは
+    // 一般ユーザーには許可ダイアログもSW登録も出さない
+    openModal(`
+      <div class="modal-card">
+        <div class="modal-header">
+          <div class="modal-title">🔔 通知設定</div>
+          <button class="modal-close" onclick="closeModal()">✕</button>
+        </div>
+        <div class="modal-body">
+          <p style="font-size:13px;color:var(--text-sub);line-height:1.8">
+            プッシュ通知は現在準備中です。ご利用いただけるようになり次第、この画面から設定できるようになります。
+          </p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-primary" style="flex:1" onclick="closeModal()">閉じる</button>
+        </div>
+      </div>
+    `);
+    return;
+  }
+  renderNotifSettingsModal();
+}
+
+function renderNotifSettingsModal() {
+  const supported = fcmSupported();
+  const permission = supported ? Notification.permission : 'unsupported';
+  let bodyHtml;
+  if (!supported) {
+    bodyHtml = `<p style="font-size:13px;color:var(--text-sub);line-height:1.8">このブラウザは通知に対応していません。</p>`;
+  } else if (permission === 'default') {
+    bodyHtml = buildNotifDefaultHtml();
+  } else if (permission === 'granted') {
+    bodyHtml = buildNotifGrantedHtml();
+  } else {
+    bodyHtml = buildNotifDeniedHtml();
+  }
+
   openModal(`
     <div class="modal-card">
       <div class="modal-header">
         <div class="modal-title">🔔 通知設定</div>
         <button class="modal-close" onclick="closeModal()">✕</button>
       </div>
-      <div class="modal-body">
-        <div class="card" style="margin-bottom:12px">
-          <div style="font-weight:700;font-size:14px;color:var(--navy);margin-bottom:12px">プッシュ通知</div>
-          ${[
-            { label:'新着お知らせ', desc:'管理者からのお知らせを受け取る', on:true },
-            { label:'必読リマインダー', desc:'既読期限前に通知', on:true },
-            { label:'チャットメッセージ', desc:'メンションされたときに通知', on:true },
-            { label:'報告への返信', desc:'対応ステータスが変わったとき', on:true },
-          ].map(item => `
-            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)">
-              <div>
-                <div style="font-size:14px;font-weight:600;color:var(--navy)">${item.label}</div>
-                <div style="font-size:11px;color:var(--text-muted);margin-top:1px">${item.desc}</div>
-              </div>
-              <label class="switch" style="flex-shrink:0">
-                <input type="checkbox" ${item.on ? 'checked' : ''}>
-                <span class="slider"></span>
-              </label>
-            </div>
-          `).join('')}
-        </div>
-        <p style="font-size:11px;color:var(--text-muted);line-height:1.7">
-          ※ iPhone で通知を受け取るには、ホーム画面に追加（PWA インストール）が必要です（iOS 16.4+）
-        </p>
+      <div class="modal-body" id="notif-settings-body">
+        ${bodyHtml}
       </div>
       <div class="modal-footer">
-        <button class="btn btn-ghost" style="flex:1" onclick="closeModal()">キャンセル</button>
-        <button class="btn btn-primary" style="flex:1" onclick="closeModal();showToast('✓ 通知設定を保存しました')">保存</button>
+        <button class="btn btn-ghost" style="flex:1" onclick="closeModal()">閉じる</button>
+        ${permission === 'granted' ? `<button class="btn btn-primary" style="flex:2" onclick="saveNotifPrefs()">保存</button>` : ''}
       </div>
     </div>
   `);
+
+  if (permission === 'granted') updateNotifTokenStatus();
 }
+
+// default状態: 何が届くのかを説明したうえで、本人が押したときにだけrequestPermission()を呼ぶ
+// (ページ読み込み時の自動実行はしない)
+function buildNotifDefaultHtml() {
+  return `
+    <p style="font-size:13px;color:var(--text-sub);line-height:1.8">
+      必読のお知らせ・手順書の追加・報告への回答などを、アプリを閉じていても通知でお知らせします。
+    </p>
+    <button class="btn btn-primary" style="width:100%;margin-top:10px" onclick="requestNotifPermissionAndRegister()">🔔 通知を受け取る</button>
+    <p style="font-size:11px;color:var(--text-muted);line-height:1.7;margin-top:14px">
+      ※ iPhone で通知を受け取るには、ホーム画面に追加（PWA インストール）が必要です（iOS 16.4+）
+    </p>
+  `;
+}
+
+// granted状態: イベント種別ごとのON/OFFトグルを操作可能にする。OFFにしてもトークン自体は
+// 残す(再度ONにしたときにすぐ届くようにするため)
+function buildNotifGrantedHtml() {
+  const prefs = (fbUser && fbUser.notifyPrefs) || {};
+  const items = NOTIFY_PREF_ITEMS.filter(i => !i.adminOnly || (fbUser && fbUser.role === 'admin'));
+  return `
+    <div class="card" style="margin-bottom:12px">
+      <div style="font-weight:700;font-size:14px;color:var(--navy);margin-bottom:12px">プッシュ通知</div>
+      ${items.map(item => `
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)">
+          <div>
+            <div style="font-size:14px;font-weight:600;color:var(--navy)">${item.label}</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:1px">${item.desc}</div>
+          </div>
+          <label class="switch" style="flex-shrink:0">
+            <input type="checkbox" id="notif-pref-${item.key}" ${prefs[item.key] === false ? '' : 'checked'}>
+            <span class="slider"></span>
+          </label>
+        </div>
+      `).join('')}
+    </div>
+    <p style="font-size:11px;color:var(--text-muted)" id="notif-token-status">確認中...</p>
+  `;
+}
+
+// denied状態: アプリからは戻せないため、端末ごとの復帰手順を案内する(プラットフォーム判定は
+// 既存detectPlatform()と同じ手法)
+function buildNotifDeniedHtml() {
+  const isIos = detectPlatform() === 'ios-pwa' || /iPhone|iPad|iPod/.test(navigator.userAgent || '');
+  const guide = isIos
+    ? 'ホーム画面のアイコンを削除し、Safari から開き直して再度ホーム画面に追加してください。'
+    : 'ブラウザのサイト設定から、当サイトの通知を「許可」に変更してください。';
+  return `
+    <p style="font-size:13px;color:var(--danger);font-weight:700;line-height:1.8">通知がブロックされています</p>
+    <p style="font-size:13px;color:var(--text-sub);line-height:1.8;margin-top:6px">${guide}</p>
+    <div class="card" style="margin-top:14px;opacity:.5;pointer-events:none">
+      ${NOTIFY_PREF_ITEMS.map(item => `
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)">
+          <div style="font-size:14px;font-weight:600;color:var(--navy)">${item.label}</div>
+          <label class="switch"><input type="checkbox" disabled><span class="slider"></span></label>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+async function requestNotifPermissionAndRegister() {
+  if (!fcmSupported()) return;
+  try {
+    const perm = await Notification.requestPermission();
+    if (perm === 'granted') {
+      await registerFcmTokenIfPossible();
+      showToast('🔔 通知を有効にしました');
+    }
+  } catch (e) {
+    console.error('通知許可エラー:', e);
+  }
+  renderNotifSettingsModal();
+}
+
+// granted表示中のみ呼ぶ。SW登録失敗やトークン取得失敗はありうるため、実際にトークンが
+// 登録できているかをlocalStorageの記録から確認して画面に反映する
+async function updateNotifTokenStatus() {
+  await registerFcmTokenIfPossible();
+  const el = document.getElementById('notif-token-status');
+  if (!el) return; // モーダルが既に閉じられていた場合は何もしない
+  const tokenId = localStorage.getItem('fbFcmTokenId');
+  el.textContent = tokenId
+    ? '✓ 通知を受け取れる状態です'
+    : '⚠️ この端末では通知を受け取れない可能性があります(通信環境を確認し、再度お試しください)';
+}
+
+async function saveNotifPrefs() {
+  const prefs = {};
+  NOTIFY_PREF_ITEMS.forEach(item => {
+    const el = document.getElementById(`notif-pref-${item.key}`);
+    if (el) prefs[item.key] = el.checked;
+  });
+  try {
+    await fbDb.collection('users').doc(fbUser.code).update({ notifyPrefs: prefs });
+    fbUser.notifyPrefs = prefs;
+    closeModal();
+    showToast('✓ 通知設定を保存しました');
+  } catch (e) {
+    console.error('通知設定保存エラー:', e);
+    showToast('⚠️ 保存に失敗しました（' + (e.code || e.message) + '）');
+  }
+}
+
+// 更新履歴。git履歴・HANDOFF.md・TECH_DEBT.mdから裏の取れる範囲で記録する(過去分を遡って捏造しない)
+const CHANGELOG = [
+  { version: '0.3', items: ['プッシュ通知(FCM)を追加', '通知設定を実データ化', '旧通知機構(アプリ起動中のみ)を廃止'] },
+  { version: '0.2.2〜0.2.3', items: ['PWA standalone表示の不具合修正(ボトムナビ固定・スクロール)'] },
+  { version: '0.2.1', items: ['利用状況計測(DAU/WAU/MAU)を実装'] },
+  { version: '0.2', items: ['Firestore移行・乗務員マスタ・周知タブ等を本公開'] },
+];
 
 function openAppInfo() {
   closeUserMenu();
@@ -3266,6 +3507,17 @@ function openAppInfo() {
             <span style="font-weight:600;color:var(--navy)">${v}</span>
           </div>
         `).join('')}
+        <div style="text-align:left;margin-top:18px">
+          <div style="font-size:12px;font-weight:700;color:var(--navy);margin-bottom:8px">更新履歴</div>
+          ${CHANGELOG.map(c => `
+            <div style="margin-bottom:8px">
+              <div style="font-size:12px;font-weight:700;color:var(--primary)">v${escHtml(c.version)}</div>
+              <ul style="margin:2px 0 0 18px;padding:0;font-size:11px;color:var(--text-sub);line-height:1.6">
+                ${c.items.map(i => `<li>${escHtml(i)}</li>`).join('')}
+              </ul>
+            </div>
+          `).join('')}
+        </div>
         <p style="margin-top:18px;font-size:12px;color:var(--text-muted);letter-spacing:.04em">
           © 2026 南野. All rights reserved.
         </p>
@@ -3275,9 +3527,12 @@ function openAppInfo() {
   `);
 }
 
-function signOut() {
+async function signOut() {
   closeUserMenu();
   if (!confirm('ログアウトしますか？')) return;
+  // 同じ端末を別の乗務員が使った場合に前の利用者宛の通知が届かないよう、
+  // signOut()より先にこの端末のFCMトークンを確実に削除する
+  await deleteFcmTokenForThisDevice();
   fbAuth.signOut(); // → onAuthStateChanged がログイン画面へ切り替える
 }
 /* 旧モック実装（切り戻し用）
@@ -4346,6 +4601,57 @@ function updateEditorState() {
   }
 }
 
+/* ===== 通知送信前の確認モーダル(共通部品) =====
+   プッシュ通知は取消不可のため、実際に送信が発生する管理者操作(必読お知らせの即時公開・
+   予約からの今すぐ配信・手順書の新規追加・未読リマインダー送信)の直前に必ず挟む。
+   概算人数はクライアントではtokens/notifyPrefsを横断集計できないため、Cloud Functions側の
+   estimateNotifyAudience callableで算出する */
+let notifySendConfirmCb = null;
+
+async function openNotifySendConfirm({ title, targetLabel, eventKey, role, targetType, targetId, previewLines, onConfirm }) {
+  notifySendConfirmCb = onConfirm;
+  let countLabel = '(概算人数を取得できませんでした)';
+  try {
+    const res = await fbFunctions.httpsCallable('estimateNotifyAudience')({ eventKey, role: role || 'driver', targetType, targetId });
+    countLabel = `(通知を許可している約${res.data.count}名)`;
+  } catch (e) {
+    console.error('概算人数の取得に失敗:', e);
+  }
+  const now = new Date().toLocaleString('ja-JP', { hour12: false });
+  openModal(`
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title">${escHtml(title)}</div>
+        <button class="modal-close" onclick="cancelNotifySendConfirm()">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:13px;color:var(--text-sub)">送信対象: <b>${escHtml(targetLabel)} ${escHtml(countLabel)}</b></p>
+        <div style="background:var(--surface2);border-radius:10px;padding:14px;margin-top:10px">
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">ロック画面に表示される文言(プレビュー)</div>
+          ${previewLines.map(l => `<div style="font-size:14px;color:var(--navy);font-weight:600">${escHtml(l)}</div>`).join('')}
+        </div>
+        <p style="font-size:11px;color:var(--text-muted);margin-top:10px">現在時刻: ${now}</p>
+        <p style="font-size:13px;color:var(--danger);font-weight:700;margin-top:14px">送信後は取り消せません。</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" style="flex:1" onclick="cancelNotifySendConfirm()">キャンセル</button>
+        <button class="btn btn-primary" style="flex:2" onclick="runNotifySendConfirm()">送信する</button>
+      </div>
+    </div>`);
+}
+
+function runNotifySendConfirm() {
+  const cb = notifySendConfirmCb;
+  notifySendConfirmCb = null;
+  closeModal();
+  if (cb) cb();
+}
+
+function cancelNotifySendConfirm() {
+  notifySendConfirmCb = null;
+  closeModal();
+}
+
 async function saveAnn() {
   // 入力中のタグも保存
   const tagInp = document.getElementById('ed-tag-input');
@@ -4381,8 +4687,6 @@ async function saveAnn() {
   }
 
   const tags = st.edTags.slice();
-  const btn = document.getElementById('ed-save-btn');
-  if (btn) btn.disabled = true;
 
   const payload = {
     title, body,
@@ -4398,6 +4702,25 @@ async function saveAnn() {
     updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
   };
 
+  // 新規×即時公開×必読の組み合わせのみプッシュ通知が発火するため、この場合だけ送信前確認を挟む
+  const willNotify = !isEdit && !isScheduled && ed.mustRead === true;
+  if (willNotify) {
+    await openNotifySendConfirm({
+      title: '📢 必読お知らせを配信',
+      targetLabel: '全ドライバー',
+      eventKey: 'mustReadAnnouncement',
+      role: 'driver',
+      previewLines: [`📌 必読: ${title}`],
+      onConfirm: () => submitAnnPayload(payload, isEdit, isScheduled, scheduledAt),
+    });
+  } else {
+    await submitAnnPayload(payload, isEdit, isScheduled, scheduledAt);
+  }
+}
+
+async function submitAnnPayload(payload, isEdit, isScheduled, scheduledAt) {
+  const btn = document.getElementById('ed-save-btn');
+  if (btn) btn.disabled = true;
   try {
     if (isEdit) {
       const a = findAnn(st.editingAnnId);
@@ -4433,6 +4756,19 @@ async function saveAnn() {
 function publishNow(id) {
   const a = findAnn(id);
   if (!a || typeof a.id === 'number') return; // モックは対象外
+  // 必読お知らせの後追い公開はonAnnouncementNotify(onDocumentWritten)がプッシュ通知を
+  // 発火させるため、その場合のみopenNotifySendConfirm()で概算人数・プレビュー・現在時刻を確認させる
+  if (a.mustRead) {
+    openNotifySendConfirm({
+      title: '🚀 今すぐ配信',
+      targetLabel: '全ドライバー',
+      eventKey: 'mustReadAnnouncement',
+      role: 'driver',
+      previewLines: [`📌 必読: ${a.title}`],
+      onConfirm: () => confirmPublishNow(id),
+    });
+    return;
+  }
   const html = `
     <div class="modal-card">
       <div class="modal-header">
@@ -4766,8 +5102,29 @@ function closeReach() {
   renderAnn();
 }
 
-function sendReminder(id) {
-  showToast('🔔 未読者にリマインダーを送信しました（モック）');
+async function sendReminder(id) {
+  const a = findAnn(id);
+  if (!a || typeof a.id === 'number') { showToast('🔔 未読者にリマインダーを送信しました（モック）'); return; } // モックは対象外
+  await openNotifySendConfirm({
+    title: '🔔 未読リマインダーを送信',
+    targetLabel: '未読の対象者',
+    eventKey: 'unreadReminder',
+    role: 'driver',
+    targetType: 'announcement',
+    targetId: a.id,
+    previewLines: ['🔔 未読のお知らせがあります'],
+    onConfirm: () => runSendUnreadReminder('announcement', a.id),
+  });
+}
+
+async function runSendUnreadReminder(targetType, targetId) {
+  try {
+    const res = await fbFunctions.httpsCallable('sendUnreadReminder')({ targetType, targetId });
+    showToast(`🔔 未読者(${res.data.unreadCount}名)へリマインダーを送信しました`);
+  } catch (e) {
+    console.error('未読リマインダー送信エラー:', e);
+    showToast('⚠️ 送信に失敗しました（' + (e.code || e.message) + '）');
+  }
 }
 
 /* ===== CSV エクスポート ===== */
@@ -5163,7 +5520,6 @@ function renderChatTab() {
 // MOCK_ANNOUNCEMENTS(初期表示コンテンツ)と連結してannouncements配列を再構築する。
 function attachAnnouncementsListener() {
   if (announcementsUnsub) { announcementsUnsub(); announcementsUnsub = null; }
-  announcementsInitialLoadDone = false;
   announcementsUnsub = fbDb.collection('announcements').orderBy('createdAt', 'desc')
     .onSnapshot(snap => {
       const real = snap.docs.map(d => {
@@ -5171,17 +5527,6 @@ function attachAnnouncementsListener() {
         return { id: d.id, ...data, from: data.authorName || '管理者', reactions: {} };
       });
       announcements = [...real, ...MOCK_ANNOUNCEMENTS];
-
-      if (announcementsInitialLoadDone) {
-        snap.docChanges().forEach(change => {
-          const data = change.doc.data();
-          if ((change.type === 'added' || change.type === 'modified') && data.status === 'published') {
-            notifyNewAnnouncement(data);
-          }
-        });
-      } else {
-        announcementsInitialLoadDone = true;
-      }
 
       const tabEl = document.getElementById('tab-announcements');
       const isActive = tabEl && tabEl.classList.contains('active');
@@ -5490,8 +5835,19 @@ async function saveManMustRead(id) {
   }
 }
 
-function remindManRead(id) {
-  showToast('🔔 未読者にリマインダーを送信しました（モック）');
+async function remindManRead(id) {
+  const m = manuals.find(x => x.id === id);
+  if (!m) return;
+  await openNotifySendConfirm({
+    title: '🔔 未読リマインダーを送信',
+    targetLabel: '未読の対象者',
+    eventKey: 'unreadReminder',
+    role: 'driver',
+    targetType: 'manual',
+    targetId: id,
+    previewLines: ['🔔 未読のお知らせがあります'],
+    onConfirm: () => runSendUnreadReminder('manual', id),
+  });
 }
 
 /* ===== 手順書：管理者追加・編集・削除 ===== */
@@ -5690,6 +6046,18 @@ async function saveManEditor(id) {
   if (!file) { showToast('⚠️ ファイルを選択してください'); return; }
   if (file.size >= MANUAL_FILE_SIZE_LIMIT) { showToast('⚠️ ファイルサイズは50MB未満にしてください'); return; }
 
+  // 新規追加は必ずonManualCreatedがプッシュ通知を発火させるため、アップロード開始前に確認する
+  await openNotifySendConfirm({
+    title: '🗂️ 手順書を追加',
+    targetLabel: '全ドライバー',
+    eventKey: 'manualAdded',
+    role: 'driver',
+    previewLines: [`🗂️ 新しい手順書: ${title}`],
+    onConfirm: () => uploadNewManual(title, description, ed, readDeadline, file, saveBtn),
+  });
+}
+
+function uploadNewManual(title, description, ed, readDeadline, file, saveBtn) {
   saveBtn.disabled = true;
   const progressWrap = document.getElementById('man-ed-progress-wrap');
   const progressBar = document.getElementById('man-ed-progress-bar');
@@ -6354,6 +6722,23 @@ function toggleFbShare(checked) {
   st.fbShareRequested = checked;
 }
 
+// 匿名報告への回答通知(FCMトピック購読)。投稿完了直後の一度きりのみ受付されるため、
+// この場でトークンが取得できる場合のみ試みる。通知を許可していない/未オプトインの場合は
+// 購読されないが、投稿自体は既に成立しているため失敗を握りつぶして良い(fire-and-forget)
+async function subscribeAnonReportIfPossible(reportId) {
+  if (!fcmSupported() || Notification.permission !== 'granted' || !FCM_VAPID_KEY) return;
+  try {
+    const reg = await navigator.serviceWorker.register('firebase-messaging-sw.js', { scope: '/matomete-app/' });
+    const token = await firebase.messaging().getToken({ vapidKey: FCM_VAPID_KEY, serviceWorkerRegistration: reg });
+    if (!token) return;
+    await fbFunctions.httpsCallable('subscribeToReport')({ reportId, token });
+  } catch (e) {
+    // already-exists(ネットワークエラー等で保存だけ失敗した際の再試行)はユーザーに見せず握りつぶす
+    if (e && e.code === 'functions/already-exists') return;
+    console.error('匿名報告の通知購読エラー:', e);
+  }
+}
+
 async function submitFb() {
   const bodyText = document.getElementById('fb-body').value.trim();
   if (!st.fbCat || !bodyText || !fbUser) return;
@@ -6403,7 +6788,10 @@ async function submitFb() {
     return;
   }
 
-  if (isAnon) saveAnonReportIdLocally(reportRef.id);
+  if (isAnon) {
+    saveAnonReportIdLocally(reportRef.id);
+    subscribeAnonReportIfPossible(reportRef.id); // fire-and-forget
+  }
   st.fbLastReceiptNum = receiptNum;
 
   // 拡充された成功画面を構築
@@ -6725,19 +7113,10 @@ function renderFbTab() {
 // フィード側は購読状況に関わらずここが唯一の情報源(reportsミラー)になる。
 function attachReportsAdminListener() {
   if (reportsAdminUnsub) { reportsAdminUnsub(); reportsAdminUnsub = null; }
-  reportsAdminInitialLoadDone = false;
   reportsAdminUnsub = fbDb.collection('reports')
     .orderBy('createdAt', 'desc')
     .onSnapshot(snap => {
       reports = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-
-      if (reportsAdminInitialLoadDone) {
-        snap.docChanges().forEach(change => {
-          if (change.type === 'added') notifyNewReport(change.doc.data());
-        });
-      } else {
-        reportsAdminInitialLoadDone = true;
-      }
 
       if (st.role === 'manager' && !document.getElementById('fb-manager').classList.contains('hidden')) {
         renderReportManager();
@@ -6748,71 +7127,7 @@ function attachReportsAdminListener() {
     });
 }
 
-/* ===== 新着報告のPWA通知（アプリ起動中のみ。FCM/バックグラウンド配信は次フェーズ） ===== */
-function updateReportNotifUI() {
-  const statusEl = document.getElementById('fb-notif-status');
-  const btnEl = document.getElementById('fb-notif-btn');
-  if (!statusEl || !btnEl) return;
-  const supported = 'Notification' in window;
-  const optedIn = localStorage.getItem('fbNotifOptIn') === 'true';
-  if (!supported) {
-    statusEl.textContent = 'このブラウザは通知に対応していません';
-    btnEl.classList.add('hidden');
-  } else if (Notification.permission === 'granted' && optedIn) {
-    statusEl.textContent = '✓ 通知ON — アプリを開いている間、新着報告をお知らせします';
-    btnEl.classList.add('hidden');
-  } else if (Notification.permission === 'denied') {
-    statusEl.textContent = 'ブラウザの通知が拒否されています（ブラウザ設定から変更してください）';
-    btnEl.classList.add('hidden');
-  } else {
-    statusEl.textContent = '未登録 — このアプリを開いている間のみ通知します';
-    btnEl.classList.remove('hidden');
-  }
-}
-
-async function enableReportNotifications() {
-  if (!('Notification' in window)) return;
-  try {
-    const perm = await Notification.requestPermission();
-    if (perm === 'granted') {
-      localStorage.setItem('fbNotifOptIn', 'true');
-      showToast('🔔 新着報告の通知を有効にしました');
-    }
-  } catch (e) {
-    console.error('通知許可エラー:', e);
-  }
-  updateReportNotifUI();
-}
-
-// 新着お知らせのPWA通知(アプリ起動中のみ)。報告タブと同じopt-inフラグ・機構を再利用する
-function notifyNewAnnouncement(a) {
-  if (!('Notification' in window)) return;
-  if (Notification.permission !== 'granted') return;
-  if (localStorage.getItem('fbNotifOptIn') !== 'true') return;
-  try {
-    new Notification('📢 新着お知らせ', {
-      body: (a.title || '').slice(0, 60),
-    });
-  } catch (e) {
-    console.error('通知表示エラー:', e);
-  }
-}
-
-function notifyNewReport(r) {
-  if (!('Notification' in window)) return;
-  if (Notification.permission !== 'granted') return;
-  if (localStorage.getItem('fbNotifOptIn') !== 'true') return;
-  try {
-    new Notification('📩 新着報告', {
-      body: `[${r.category}] ${(r.body || '').slice(0, 60)}`,
-    });
-  } catch (e) {
-    console.error('通知表示エラー:', e);
-  }
-}
-
 function renderReportManager() {
-  updateReportNotifUI();
   renderReportFilters();
   if (st.reportDetailId) {
     showReport(st.reportDetailId);
@@ -6973,6 +7288,10 @@ function showReport(id) {
       <textarea id="report-reply-input" class="input-field" rows="4"
         placeholder="投稿者に表示される回答を入力できます（任意）..."
         style="resize:vertical;line-height:1.7">${escHtml(r.replyToReporter || '')}</textarea>
+      <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:12px;color:var(--text-sub)">
+        <input type="checkbox" id="report-reply-notify" ${r.replyToReporter ? '' : 'checked'}>
+        通知して保存（投稿者に「新しい回答があります」とプッシュ通知が届きます）
+      </label>
       <button class="btn btn-primary" style="width:100%;margin-top:10px" onclick="saveReply('${r.id}')">💾 回答を保存</button>
     </div>
 
@@ -7051,12 +7370,17 @@ async function saveReply(id) {
   const input = document.getElementById('report-reply-input');
   if (!input) return;
   const reply = input.value.trim();
+  const notifyCheckbox = document.getElementById('report-reply-notify');
+  const shouldNotify = !!(notifyCheckbox && notifyCheckbox.checked);
   try {
     await fbDb.collection('reports').doc(id).update({
       replyToReporter: reply,
       statusUpdatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      // onReportReplyNotify(Cloud Functions)がこの値の変化を検知して送信する。
+      // 「通知せず保存」の場合はnullのまま=送信条件を満たさない
+      replyNotifyIntentAt: shouldNotify ? firebase.firestore.FieldValue.serverTimestamp() : null,
     });
-    showToast('💾 回答を保存しました');
+    showToast(shouldNotify ? '💾 回答を保存しました（投稿者へ通知します）' : '💾 回答を保存しました（通知なし）');
   } catch (e) {
     console.error('回答保存エラー:', e);
     showToast('⚠️ 保存に失敗しました（' + (e.code || e.message) + '）');
@@ -7374,12 +7698,14 @@ function showLoginScreen() {
   if (announcementsUnsub) { announcementsUnsub(); announcementsUnsub = null; }
   if (annReadsUnsub) { annReadsUnsub(); annReadsUnsub = null; }
   announcements = [...MOCK_ANNOUNCEMENTS];
-  announcementsInitialLoadDone = false;
   annCurrentReads = {};
   annAllDrivers = [];
   annReachCache = {};
   myAnnAcks = {};
   st.annDetailId = null;
+  // FCM通知configミラーのリスナーも同様に必ずdetach
+  if (notificationsConfigUnsub) { notificationsConfigUnsub(); notificationsConfigUnsub = null; }
+  notificationsConfig = null;
   document.getElementById('app').style.display = 'none';
   document.getElementById('login-screen').style.display = 'flex';
   document.getElementById('login-password').value = '';
@@ -7886,6 +8212,11 @@ fbAuth.onAuthStateChanged(async (user) => {
 
     // 利用状況計測(DAU/WAU/MAU用)。失敗してもログイン自体は継続させる
     recordSession();
+
+    // FCM通知のStage0ゲート判定用configミラー。続けてトークンの生存確認/ローテーション検知を行う
+    // (許可ダイアログはここでは出さない。既にgranted済みの場合のみサイレントに更新する)
+    attachNotificationsConfigListener();
+    refreshFcmTokenIfNeeded();
 
     // 管理者は報告(reports)全件リスナーをログイン時から開始する
     // (アプリ起動中のみのPWA通知はこのリスナーのdocChangesを起点に発火する)

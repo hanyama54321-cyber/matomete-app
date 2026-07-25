@@ -146,3 +146,51 @@ test('一般ユーザーは他ユーザーのlastActiveDateを更新できない
   const db = authedContext(testEnv, 'D12').firestore();
   await assertFails(db.collection('users').doc('ADM1').update({ lastActiveDate: '2026-07-22' }));
 });
+
+test('一般ユーザーは自分のnotifyPrefsを単独更新できる(通知設定)', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'D12').firestore();
+  await assertSucceeds(
+    db.collection('users').doc('D12').update({ notifyPrefs: { mustReadAnnouncement: false } })
+  );
+});
+
+test('一般ユーザーはnotifyPrefsと他フィールドを同時更新できない', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'D12').firestore();
+  await assertFails(
+    db.collection('users').doc('D12').update({ notifyPrefs: { mustReadAnnouncement: false }, team: 'team_i' })
+  );
+});
+
+test('一般ユーザーはnotifyPrefsに許可外のキーを含められない', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'D12').firestore();
+  await assertFails(
+    db.collection('users').doc('D12').update({ notifyPrefs: { unknownKey: true } })
+  );
+});
+
+test('一般ユーザーはnotifyPrefsの値をbool以外にできない', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'D12').firestore();
+  await assertFails(
+    db.collection('users').doc('D12').update({ notifyPrefs: { mustReadAnnouncement: 'yes' } })
+  );
+});
+
+test('一般ユーザーは他ユーザーのnotifyPrefsを更新できない', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'D12').firestore();
+  await assertFails(
+    db.collection('users').doc('ADM1').update({ notifyPrefs: { mustReadAnnouncement: false } })
+  );
+});
+
+test('adminは対象ユーザーのnotifyPrefsを含む任意更新ができる', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'ADM1').firestore();
+  await assertSucceeds(
+    db.collection('users').doc('D12').update({ notifyPrefs: { mustReadAnnouncement: false }, team: 'team_i' })
+  );
+});

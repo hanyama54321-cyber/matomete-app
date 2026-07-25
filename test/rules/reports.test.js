@@ -341,3 +341,52 @@ test('カウンタの新規作成でcount!=1は拒否される', async () => {
   const db = authedContext(testEnv, 'D12').firestore();
   await assertFails(db.collection('counters').doc('reports').set({ count: 2 }));
 });
+
+/* ===== reports/{id}/private/* (匿名トピック・回答通知の冪等管理。Admin SDK専用) ===== */
+
+test('投稿者本人でもprivate/notifyをreadできない', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'D12').firestore();
+  await assertFails(db.collection('reports').doc('rep_named').collection('private').doc('notify').get());
+});
+
+test('adminでもprivate/notifyをreadできない(クライアントとしてはAdmin SDK専用)', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'ADM1').firestore();
+  await assertFails(db.collection('reports').doc('rep_anon').collection('private').doc('notify').get());
+});
+
+test('adminでもprivate/notifyをwriteできない', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'ADM1').firestore();
+  await assertFails(
+    db.collection('reports').doc('rep_anon').collection('private').doc('notify').set({ topic: 'rpt-fake' })
+  );
+});
+
+test('匿名報告の投稿者本人でもprivate/notifyをwriteできない(なりすまし購読防止はFunctions側で行う)', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'D12').firestore();
+  await assertFails(
+    db.collection('reports').doc('rep_anon').collection('private').doc('notify').set({ topic: 'rpt-fake' })
+  );
+});
+
+test('未認証ユーザーはprivate/notifyをread/writeできない', async () => {
+  await seed();
+  const db = testEnv.unauthenticatedContext().firestore();
+  await assertFails(db.collection('reports').doc('rep_anon').collection('private').doc('notify').get());
+  await assertFails(
+    db.collection('reports').doc('rep_anon').collection('private').doc('notify').set({ topic: 'x' })
+  );
+});
+
+test('投稿者本人でもprivate/replyNotifyをread/writeできない', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'D12').firestore();
+  await assertFails(db.collection('reports').doc('rep_named').collection('private').doc('replyNotify').get());
+  await assertFails(
+    db.collection('reports').doc('rep_named').collection('private').doc('replyNotify')
+      .set({ consumedIntentAt: new Date() })
+  );
+});

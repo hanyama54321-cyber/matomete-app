@@ -1,0 +1,83 @@
+{
+  "name": "projects/anzen-matomete-app/locations/asia-northeast1/functions/sendAnnouncementEmail",
+  "buildConfig": {
+    "build": "projects/163103621501/locations/asia-northeast1/builds/ed01a34a-6633-49dd-be4b-37c51d03b463",
+    "runtime": "nodejs24",
+    "entryPoint": "sendAnnouncementEmail",
+    "source": {
+      "storageSource": {
+        "bucket": "gcf-v2-sources-163103621501-asia-northeast1",
+        "object": "sendAnnouncementEmail/function-source.zip",
+        "generation": "1782900819609675"
+      }
+    },
+    "environmentVariables": {
+      "GOOGLE_NODE_RUN_SCRIPTS": ""
+    },
+    "dockerRepository": "projects/anzen-matomete-app/locations/asia-northeast1/repositories/gcf-artifacts",
+    "sourceProvenance": {
+      "resolvedStorageSource": {
+        "bucket": "gcf-v2-sources-163103621501-asia-northeast1",
+        "object": "sendAnnouncementEmail/function-source.zip",
+        "generation": "1782900819609675"
+      }
+    },
+    "dockerRegistry": "ARTIFACT_REGISTRY",
+    "serviceAccount": "projects/anzen-matomete-app/serviceAccounts/163103621501-compute@developer.gserviceaccount.com",
+    "automaticUpdatePolicy": {}
+  },
+  "serviceConfig": {
+    "service": "projects/anzen-matomete-app/locations/asia-northeast1/services/sendannouncementemail",
+    "timeoutSeconds": 60,
+    "environmentVariables": {
+      "FIREBASE_CONFIG": "{\"projectId\":\"anzen-matomete-app\",\"storageBucket\":\"anzen-matomete-app.firebasestorage.app\"}",
+      "GCLOUD_PROJECT": "anzen-matomete-app",
+      "EVENTARC_CLOUD_EVENT_SOURCE": "projects/anzen-matomete-app/locations/asia-northeast1/services/sendAnnouncementEmail",
+      "FUNCTION_SIGNATURE_TYPE": "cloudevent",
+      "FUNCTION_TARGET": "sendAnnouncementEmail",
+      "LOG_EXECUTION_ID": "true"
+    },
+    "maxInstanceCount": 20,
+    "ingressSettings": "ALLOW_ALL",
+    "uri": "https://sendannouncementemail-fkqo6ag2ba-an.a.run.app",
+    "serviceAccountEmail": "163103621501-compute@developer.gserviceaccount.com",
+    "availableMemory": "256Mi",
+    "allTrafficOnLatestRevision": true,
+    "revision": "sendannouncementemail-00002-tuj",
+    "maxInstanceRequestConcurrency": 80,
+    "availableCpu": "1"
+  },
+  "eventTrigger": {
+    "trigger": "projects/anzen-matomete-app/locations/asia-northeast1/triggers/sendannouncementemail-769580",
+    "triggerRegion": "asia-northeast1",
+    "eventType": "google.cloud.firestore.document.v1.created",
+    "eventFilters": [
+      {
+        "attribute": "database",
+        "value": "(default)"
+      },
+      {
+        "attribute": "namespace",
+        "value": "(default)"
+      },
+      {
+        "attribute": "document",
+        "value": "announcements/{docId}",
+        "operator": "match-path-pattern"
+      }
+    ],
+    "pubsubTopic": "projects/anzen-matomete-app/topics/eventarc-asia-northeast1-sendannouncementemail-769580-604",
+    "serviceAccountEmail": "163103621501-compute@developer.gserviceaccount.com",
+    "retryPolicy": "RETRY_POLICY_DO_NOT_RETRY"
+  },
+  "state": "ACTIVE",
+  "updateTime": "2026-07-01T10:14:31.365765258Z",
+  "labels": {
+    "deployment-tool": "cli-firebase",
+    "firebase-functions-hash": "66dbcd4eb6bed104ae02af88da0abff7b39d1b8f"
+  },
+  "environment": "GEN_2",
+  "url": "https://asia-northeast1-anzen-matomete-app.cloudfunctions.net/sendAnnouncementEmail",
+  "createTime": "2026-06-26T10:09:48.325265206Z",
+  "satisfiesPzi": true
+}

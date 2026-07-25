@@ -1,13 +1,61 @@
-# 引き継ぎ書(2026-07-22時点)
+# 引き継ぎ書(2026-07-25時点)
 
 新しいセッションで作業を再開する際は、まずこのファイルと [README.md](README.md)・[TECH_DEBT.md](TECH_DEBT.md) を読んでください。
 
 ## プロジェクト概要
 
-- **リポジトリ**: `matomete-app`(安全配送まとめてアプリ)。単一ファイルSPA([index.html](index.html)、約7300行)+ Firebase(Firestore/Auth/Storage)。
+- **リポジトリ**: `matomete-app`(安全配送まとめてアプリ)。単一ファイルSPA([index.html](index.html)、約7500行)+ Firebase(Firestore/Auth/Storage/**Cloud Functions/FCM**)。
 - **ブランチ運用**: `main`=本番公開中(GitHub Pages、Firebase接続版)、`develop`=開発中。リリース時は`develop`→`main`マージ(手順は[README.md](README.md)参照)。
 - **Firebaseプロジェクト**: `anzen-matomete-app`(Blazeプラン、asia-northeast1)。
-- **アプリバージョン**: **v0.2.2**(本セッションでmainへ本公開済み)。
+- **アプリバージョン**: **v0.3相当を develop に実装済み(mainは v0.2.3 のまま、マージは合図待ち)**。
+
+## 本セッション: FCMプッシュ通知の実装(develop、v0.3・マージは合図待ち)
+
+「FCMプッシュ通知 実装設計書 v2」(2026-07-24)に基づき実装。このアプリで**初めてCloud Functionsを導入**した。実装計画は3ラウンドの南野さんレビューを経て承認され、その内容に沿って実装している(計画の詳細な経緯はセッション内のやりとり参照、要点のみ以下に記録)。
+
+### Cloud Functions基盤(`functions/`新設)
+
+- Node 20、`firebase-functions` v2 API、リージョン`asia-northeast1`、全関数`maxInstances`設定済み
+- `functions/lib/`: `admin.js`(modular API、`initializeApp`/`getFirestore`/`getMessaging`)・`auth.js`(`codeFromAuth`/`requireAdmin`)・`constants.js`・`hash.js`・`tokens.js`・`send.js`・`idempotency.js`
+- トリガー5つ: `onAnnouncementNotify`(`onDocumentWritten`、create/update両対応。削除イベントガード+自己再帰ガード(notifiedAtのみの差分は無視)必須)・`onReportCreated`・`onReportReplyNotify`(`reports`本体を書かず`private/replyNotify`にのみ書き込むことで自己再帰を回避)・`onManualCreated`・`cleanupStaleTokens`(週次、`collectionGroup('tokens')`の180日超`lastSeenAt`を削除)
+- callable3つ: `sendUnreadReminder`・`subscribeToReport`(匿名報告のFCMトピック購読。トピック名はFunctions側でランダム生成しクライアントに返さない、`private/notify`に保存、購読受付は報告作成後60秒以内・一度きり)・`estimateNotifyAudience`(送信前確認ダイアログの概算人数算出。`sendUnreadReminder`と同じ管理者限定チェックを実施)
+- **本番デプロイ済み**(`firebase deploy --only functions`)。初回デプロイ時、以下を実施:
+  - `firebase functions:artifacts:setpolicy --location asia-northeast1 --force`(Artifact Registryのイメージ蓄積による無料枠超過防止。既に1日ポリシーが自動設定されていることを確認)
+  - `cleanupStaleTokens`の`schedule: 'every 7 days'`はCloud Scheduler側で400エラー(スケジュール文字列を認識せず)になったため、標準unix-cron形式`'0 3 * * 0'`(毎週日曜3:00 JST)に変更して解決
+
+### Firestoreスキーマ・ルール追加
+
+`firestore.rules`に追加(**本番デプロイ済み**): `users/{code}.notifyPrefs`(本人単独更新可、キー許可リスト+bool型を`validNotifyPrefs()`で検証)・`users/{code}/tokens/{tokenId}`(本人のみ読み書き)・`config/{docId}`(read全員/write admin。`config/notifications`を`{openToAllUsers:false}`で本番作成済み)・`reports/{id}/private/{docId}`(全クライアントread/write不可、Admin SDK専用)。`firestore.indexes.json`に`tokens`コレクショングループの`lastSeenAt`インデックス追加。ルールテスト25件追加(`tokens.test.js`/`config.test.js`新規、`users.test.js`/`reports.test.js`拡張)、**169件全pass**。
+
+### クライアント実装(`index.html`)
+
+- `firebase-messaging-compat.js`/`firebase-functions-compat.js`追加、`fbFunctions = firebase.app().functions('asia-northeast1')`
+- `FCM_VAPID_KEY`定数(現在空文字。**南野さんがFirebase Consoleで生成し次第、値を設定する必要あり**。Web Push証明書のページから取得)
+- トークンライフサイクル: `registerFcmTokenIfPossible()`/`refreshFcmTokenIfNeeded()`(ログイン時)/`deleteFcmTokenForThisDevice()`(ログアウト時、`signOut()`から`fbAuth.signOut()`より先にawait)。`tokenId`はトークン文字列のSHA-256ハッシュ(`sha256Hex()`、`crypto.subtle`)
+- `openNotifSettings()`を全面再設計: `Notification.permission`の`default`/`granted`/`denied`3分岐、5イベント(必読お知らせ/未読リマインダー/手順書追加/報告への回答/新規報告(admin限定))のトグル。`denied`時は端末別復帰手順を案内
+- `canShowNotifyOptIn()`によるStage0ゲート(`role==='admin'`または`config/notifications.openToAllUsers`)。`registerFcmTokenIfPossible`等もこのゲート配下
+- `openNotifySendConfirm()`共通確認モーダル(概算人数・ロック画面文言プレビュー・現在時刻・取消不可の明記)を`saveAnn()`即時公開パス・`publishNow()`(mustRead時のみ)・manuals新規追加・`sendReminder()`/`remindManRead()`(未読リマインダー)の4箇所に組み込み
+- `saveReply()`に「通知して保存」チェックボックス追加(初回デフォルトON・2回目以降OFF)。`replyNotifyIntentAt`をreports本体に書き込み、Functions側が検知して送信
+- `submitFb()`に静的注記追加+匿名投稿時`subscribeAnonReportIfPossible()`をfire-and-forget呼び出し
+- **旧フォアグラウンド通知機構は完全撤去**: `notifyNewReport`/`notifyNewAnnouncement`/`enableReportNotifications`/`updateReportNotifUI`、`localStorage['fbNotifOptIn']`、報告タブの「新着報告の通知」カードHTML、および関連する`reportsAdminInitialLoadDone`/`announcementsInitialLoadDone`(存在意義が旧機構の誤発火防止のみだったため合わせて削除)
+
+### Service Worker(`firebase-messaging-sw.js`新規)
+
+通知受信専用の最小構成(`fetch`ハンドラなし)。`SW_VERSION`は`APP_VERSION`と別系統(現在`'sw-1'`、SW内容を実際に変更した回だけ上げる)。`firebaseConfig`はindex.htmlと同期させる旨のコメント付きで転記。ロック画面文言はSW側の`buildNotificationContent()`で組み立て(data-only送信、報告関連2件は内容を一切含めない)。
+
+### 未知のCloud Function `sendAnnouncementEmail` の退避・削除
+
+初回`firebase deploy --only functions`実行時、このリポジトリのgit履歴に存在しない関数`sendAnnouncementEmail`(`announcements/{docId}`のonCreateトリガー、メール送信試作)が本番デプロイ済みであることが判明。南野さん確認の結果、Cloud Functions基盤新設以前にFirebase Consoleから直接デプロイした試作とのこと。gcloud CLI未インストールのため、`firebase-tools`のログイン済み認証情報でCloud Functions v2 REST API/Cloud Storage JSON APIを直接叩いて構成・ソースを取得(`gcloud describe`/`delete`の代替)。ソース中に直書きされていたGmailアプリパスワードは`<REDACTED>`に置換して`docs/archive/sendAnnouncementEmail/`に退避、本体は削除済み(南野さんによりアプリパスワードも失効済み)。詳細は[docs/メール通知_将来実装メモ.md](docs/メール通知_将来実装メモ.md)、技術的な記録は[TECH_DEBT.md](TECH_DEBT.md)項目5参照。この一件により`firebase deploy --only functions`の個別関数名指定運用は不要になった(フルシンクで正常に通ることを確認済み)。
+
+### 段階的展開(Stage0〜2)の現状
+
+Stage0(通知UIをadmin限定表示)まで実装済み・本番`config/notifications`作成済み。**Stage1(南野さんの実機でのイベント発火・受信確認)は未実施**。VAPID鍵が未設定のため、Stage1開始には南野さんの作業(Firebase Console → プロジェクト設定 → Cloud Messaging → ウェブ構成 → 鍵ペアの生成)が必要。Stage0〜2の間、旧機構撤去により一般ドライバーは通知機能を持たない空白期間になる(許容済み、詳細はTECH_DEBT.md項目8)。
+
+### 未検証・既知のリスク
+
+- **実機でのプッシュ受信確認は未実施**(iOS standalone / Android とも)。このサンドボックスでは`env(safe-area-inset-*)`同様に検証不可能
+- ローカルFirestore/Functionsエミュレータで、削除イベントガード・自己再帰ガード・callable認証拒否(未認証/非admin)は確認済み。ただし**FCM実送信自体はエミュレータで再現できない**(`subscribeToTopic`が実際のGoogleサーバーへの認証を要求し、ローカル環境では`messaging/authentication-error`になることを確認)
+- `firebase-functions-compat.js`は同一ページに`firebase-messaging`があるとcallable呼び出しのたびに内部でFCMトークン取得を試み、`Notification.permission==='granted'`だがService Worker未登録だとcallable呼び出し自体が失敗する挙動をローカル検証で確認(詳細はTECH_DEBT.md項目8)
 
 ## これまでに完了した作業(直近コミット)
 
@@ -82,15 +130,18 @@ iPhoneのホーム画面追加(standalone)表示で、`#bottom-nav`(下部タブ
 - **[TECH_DEBT.md](TECH_DEBT.md)を参照**:
   1. `st.currentUid`依存: 周知タブの実データ既読は解消済み。モック6件・チャット未読カウント・`recalcTeamCounts()`の人数集計は未解消。
   1b. 周知タブの実データ到達率は`users.list`がadmin限定のため管理者にのみ表示(仕様として確定)。
-  2/2b/2c. 乗務員コードCSV一括投入は対応済み。個別登録時のAuthアカウント作成・退職者削除後のAuthアカウント残留は意図的に未対応。
-  3. パスワードセルフリセット機能(Cloud Functions要、設計のみ確定)。
-  4. 周知タブの予約配信は自動公開されない(手動publishNowのみ、Cloud Functions導入時に対応)。
-  5. 周知タブへのメール通知(将来構想、記録のみ)。
-  6. LINE連携は見送り(決定記録)。将来の通知はメール基盤を優先。
+  2/2b/2c. 乗務員コードCSV一括投入は対応済み。個別登録時のAuthアカウント作成・退職者削除後のAuthアカウント残留は意図的に未対応(`functions/`基盤は新設済みのため対応可能に)。
+  3. パスワードセルフリセット機能(`functions/`基盤は新設済み、設計のみ確定)。
+  4. 周知タブの予約配信は自動公開されない(手動publishNowのみ。ただし後追い公開時のプッシュ通知自体はv0.3で対応済み)。
+  5. 周知タブへのメール通知(将来構想。詳細は[docs/メール通知_将来実装メモ.md](docs/メール通知_将来実装メモ.md))。
+  6. LINE連携は見送り(決定記録)。
+  7. チャットの読み取りコスト設計(初回件数是正のみ対応済み、`persistentLocalCache`・90日超アーカイブは未対応)。
+  8. **FCMプッシュ通知(v0.3)**: Stage1(実機検証)未実施。ユーザーコード変換規則(`myCode()`相当)がrulesとfunctionsの2箇所にある点、Stage0〜2の通知空白期間の申し送りを含む。
 
 ## 開発環境の状態(このマシン固有)
 
 - **Firebase CLI**: `npx firebase-tools`(ローカルインストール不要、`node_modules/firebase-tools`にdevDependency済み)。**ログイン済み**(`hanyama54321@gmail.com`)。`firebase deploy`はそのまま実行可能なはず。
+- **gcloud CLIは未インストール**(本セッションで判明)。Cloud Functionsの`describe`/`delete`等gcloud相当の操作が必要な場合は、`firebase-tools/lib/auth.js`の`getGlobalDefaultAccount()`+`getAccessToken()`でアクセストークンを取得し、Cloud Functions v2 / Cloud Storage / Firestore の各REST APIを直接叩くことで代替できる(本セッションで`sendAnnouncementEmail`の調査・削除、`config/notifications`の作成に使用した実績あり。再利用可能な手法)。
 - **Java**: エミュレータ用に Temurin 21 JRE を `C:\Program Files\Eclipse Adoptium\jre-21.0.11.10-hotspot` にインストール済み。**Bashツールは新規セッションでこのPATHを引き継がない**ので、テスト実行前に毎回:
   ```
   export PATH="/c/Program Files/Eclipse Adoptium/jre-21.0.11.10-hotspot/bin:$PATH"
@@ -98,6 +149,7 @@ iPhoneのホーム画面追加(standalone)表示で、`#bottom-nav`(下部タブ
   ```
 - **GCP IAM設定済み**: Cloud Storageのセキュリティルールが`firestore.get()`でFirestoreをクロスサービス参照するため、サービスアカウント`service-163103621501@gcp-sa-firebasestorage.iam.gserviceaccount.com`に`roles/datastore.user`を付与済み。これがないとStorageアップロードが`storage/unauthorized`で失敗する。
 - **ローカル動作確認用サーバー**: 必ず`http://localhost:8000/index.html`のようにローカルサーバー経由で開くこと(`.claude/launch.json`の`matomete-app`設定、`python -m http.server 8000`)。**`file://`で直接開くと`<script src>`読み込みに失敗する**(既知の問題)。
+- **VAPID鍵は未設定**: `index.html`の`FCM_VAPID_KEY`定数が空文字のまま。Firebase Console → プロジェクト設定 → Cloud Messaging → ウェブ構成 → 鍵ペアの生成、で取得した公開鍵を設定するまでFCMトークン登録は動作しない(南野さんの作業待ち)。
 
 ## テスト・デプロイ手順(次回も同じ)
 
@@ -108,23 +160,28 @@ npm run test:rules
 # 2. rules + indexes をデプロイ
 npx firebase-tools deploy --only firestore:rules,firestore:indexes --project anzen-matomete-app
 
+# 3. Cloud Functionsをデプロイ(sendAnnouncementEmail削除済みのため個別指定不要)
+npx firebase-tools deploy --only functions --project anzen-matomete-app
+
 # Storageルールを変更した場合はこちらも
 npx firebase-tools deploy --only storage --project anzen-matomete-app
 ```
 
-現在144件のルールテストが全pass(`test/rules/{users,reports,manuals,storage,kyt,teams,announcements,channels,sessions}.test.js`)。`firestore.rules`(sessions新設・users.lastActiveDate自己更新追加)はv0.2.1リリース時にデプロイ済み。v0.2.2(ボトムナビ余白修正)はCSS-only変更のためrules/indexesの再デプロイは不要だった。
+現在169件のルールテストが全pass(`test/rules/{users,reports,manuals,storage,kyt,teams,announcements,channels,sessions,tokens,config}.test.js`)。`firestore.rules`/`firestore.indexes.json`・Cloud Functions(8関数)は本セッションで本番デプロイ済み。`index.html`側(FCMクライアント実装)はdevelopに実装済みでmainには未反映(合図待ち)。
 
 ## コミット時の運用ルール(このセッションで一貫していた点)
 
 - `.claude/`(ローカルのdev-server起動設定`launch.json`)は毎回コミット対象外。
 - `seed.html`は`.gitignore`で除外(実行後は毎回未追跡のまま)。
 - コミット前に`git status`で意図しない差分がないか確認 → `npm run test:rules`全pass確認 → コミット → push、の順を徹底。
-- 実機テストで本番Firestoreにテストデータを書き込んだ場合は、テスト直後に必ず削除して原状復帰する。**ただし`sessions`コレクションは`allow update, delete: if false`(追記のみ)のため、検証で作成したセッションレコード自体は削除できない**(`users.lastActiveDate`は自己更新可能なため元に戻せる)。今回のセッションでもAAAAA/10168の2026-07-22分`sessions`ドキュメントが検証用として残っている。
+- 実機テストで本番Firestoreにテストデータを書き込んだ場合は、テスト直後に必ず削除して原状復帰する。**ただし`sessions`コレクションは`allow update, delete: if false`(追記のみ)のため、検証で作成したセッションレコード自体は削除できない**(`users.lastActiveDate`は自己更新可能なため元に戻せる)。
 - **mainへのマージは指示がない限り行わない**。
-- リモートに未取得のコミットがある場合は`git fetch`→`git rebase origin/develop`してからpushする(前々回セッションでREADME修正が競合しかけた実績あり)。
+- リモートに未取得のコミットがある場合は`git fetch`→`git rebase origin/develop`してからpushする。
+- **作業開始時は必ず`git branch`で`develop`にいることを確認する**。本セッション開始時、前回セッションのv0.2.3マージ後の`git checkout main`から戻し忘れており、`main`ブランチのまま実装を始めてしまっていたことに気づいて`git checkout develop`で移し替えた実績がある(まだ何もコミットしていなかったため実害なし)。
 
 ## 次にやるとよさそうなこと(優先度は南野さん判断)
 
-1. **[最優先・要確認]** v0.2.2のPWA standaloneボトムナビ余白修正について、南野さんの実機(iPhone、ホーム画面追加アプリ)で白帯が解消されているか確認結果を聞く。解消されていなければ`v0.2.1-pre-navfix`タグを起点に切り戻すか追加修正を検討。
-2. `st.currentUid`依存の残存箇所(モック周知データ・チャット未読・`recalcTeamCounts()`)を`fbUser.code`ベースへ統一(TECH_DEBT.md #1)。
-3. developに他の未反映変更が無いか確認しつつ、次のリリースがあればREADME.mdのリリース手順に従う。
+1. **[最優先]** VAPID鍵をFirebase Consoleで生成し、`index.html`の`FCM_VAPID_KEY`に設定する。設定後、南野さんの実機(iOS standalone / Android)でStage1(通知の許可→5イベントの発火→受信確認)を行う。
+2. Stage1が問題なければ、developをmainへマージ(合図があれば)→`config/notifications.openToAllUsers`を`true`に更新してStage2(一般開放)へ。長く保留しないこと。
+3. `st.currentUid`依存の残存箇所(モック周知データ・チャット未読・`recalcTeamCounts()`)を`fbUser.code`ベースへ統一(TECH_DEBT.md #1)。
+4. developに他の未反映変更が無いか確認しつつ、次のリリースがあればREADME.mdのリリース手順に従う。

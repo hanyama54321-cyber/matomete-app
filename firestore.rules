@@ -32,6 +32,18 @@ service cloud.firestore {
       return ch.teamId == 'all' || ch.teamId == myUserDoc().team || isAdmin();
     }
 
+    // FCM通知のイベント種別ごとON/OFF(users/{code}.notifyPrefs)の検証。
+    // キー名を固定5種の許可リストに限定し、値はboolのみ許可する。アクセス制御には
+    // 影響しない自己設定値だが、任意データの書き込み先になることを防ぐために検証する
+    function validNotifyPrefs(p) {
+      return p.keys().hasOnly(['mustReadAnnouncement','unreadReminder','manualAdded','reportReply','newReportAdmin'])
+        && (!('mustReadAnnouncement' in p) || p.mustReadAnnouncement is bool)
+        && (!('unreadReminder' in p) || p.unreadReminder is bool)
+        && (!('manualAdded' in p) || p.manualAdded is bool)
+        && (!('reportReply' in p) || p.reportReply is bool)
+        && (!('newReportAdmin' in p) || p.newReportAdmin is bool);
+    }
+
     match /users/{code} {
       // 本人 or admin は個別取得可
       allow get: if isSignedIn() && (myCode() == code || isAdmin());
@@ -53,9 +65,28 @@ service cloud.firestore {
         // lastActiveDateは利用状況計測(recordSession())用。本人のみ単独更新可
         || (myCode() == code
             && request.resource.data.diff(resource.data)
-               .affectedKeys().hasOnly(['lastActiveDate']));
+               .affectedKeys().hasOnly(['lastActiveDate']))
+        // notifyPrefsはFCM通知のイベント種別ごとON/OFF。本人のみ単独更新可
+        || (myCode() == code
+            && request.resource.data.diff(resource.data)
+               .affectedKeys().hasOnly(['notifyPrefs'])
+            && validNotifyPrefs(request.resource.data.notifyPrefs));
       // 作成・削除はadminのみ(CSV一括投入もこの権限で通る)
       allow create, delete: if isAdmin();
+
+      // FCM登録トークン。本人のみ読み書き可(Admin SDKは全読み書き可、rules上の制限を
+      // 受けない)。tokenIdはトークン文字列のSHA-256ハッシュ(クライアント側で算出)のため、
+      // 同一端末からの再登録が同じドキュメントを上書きする形になり、冪等・重複防止になる
+      match /tokens/{tokenId} {
+        allow read, write: if isSignedIn() && myCode() == code;
+      }
+    }
+
+    // アプリ全体設定。現状は config/notifications ({openToAllUsers:bool}) のみ使用。
+    // 読取は認証済み全員(通知オプトインUIの表示ゲート判定に使うため)、更新はadminのみ
+    match /config/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
     }
 
     // 利用状況計測(DAU/WAU/MAU集計用)。1ユーザー1日1回、ログイン時にrecordSession()が作成する。
@@ -183,6 +214,14 @@ service cloud.firestore {
             && request.resource.data.visibility in ['private', 'pending_public']);
 
       allow delete: if isAdmin();
+
+      // 匿名報告のトピック配信先(private/notify: {topic})、および回答通知の冪等管理
+      // (private/replyNotify: {consumedIntentAt})。なりすまし購読・トピック名漏洩防止のため
+      // クライアントからは一切アクセスさせない(adminも含む)。Cloud Functions(Admin SDK)は
+      // rulesを迂回するため、ここでの拒否の影響を受けずに操作できる
+      match /private/{docId} {
+        allow read, write: if false;
+      }
     }
 
     match /manuals/{manualId} {

@@ -22,7 +22,7 @@ Step 3で `10168 → u01`（モックusers配列内の南野）のように、Fi
 
 管理者メニュー「乗務員マスタ」からの個別新規登録(`index.html` `submitDriverCreate()`)はFirestoreドキュメントの作成のみで、Firebase Authアカウントは作成しない(スコープ外として意図的に見送り)。個別登録した乗務員は、CSV一括投入または`seed.html`側での手動対応をしない限りログインできない。
 
-**対応時期**: 個別登録の都度Authアカウントも安全に作成できるようにするには、クライアント側の`createUserWithEmailAndPassword`直接呼び出し(常時「サインアップ」有効化が必要でセキュリティリスク)ではなく、Cloud Functions + Admin SDKでの実装が必要(下記項番3のパスワードリセット機能と基盤を共有できる)。
+**対応時期**: 個別登録の都度Authアカウントも安全に作成できるようにするには、クライアント側の`createUserWithEmailAndPassword`直接呼び出し(常時「サインアップ」有効化が必要でセキュリティリスク)ではなく、Cloud Functions + Admin SDKでの実装が必要(下記項番3のパスワードリセット機能と基盤を共有できる)。**`functions/`基盤はFCMプッシュ通知実装(下記項番8)で新設済みのため、この基盤に乗せて対応可能。**
 
 ## 2c. 退職者削除後のAuthアカウント残留
 
@@ -39,7 +39,7 @@ Step 3で `10168 → u01`（モックusers配列内の南野）のように、Fi
 - Firestoreの `users/{コード}` にユーザー任意登録の**実メールアドレス**を保持するフィールドを追加
 - Cloud Functions + Admin SDKの `updateUser()` を使い、独自のパスワードリセットフロー(実メール宛にワンタイムトークン等を送付→検証→Admin SDKでパスワード更新)を実装する
 
-**対応時期**: メール通知機能(周知タブ等で構想されている通知基盤)実装時にセットで対応。Cloud Functions・メール送信基盤を共有できるため。
+**対応時期**: メール通知機能(周知タブ等で構想されている通知基盤)実装時にセットで対応。Cloud Functions・メール送信基盤を共有できるため。**`functions/`基盤はFCMプッシュ通知実装(下記項番8)で新設済み。**
 
 **シークレット管理の方針**: サービスアカウント鍵(`serviceAccountKey.json`等)は`.gitignore`済み(誤コミット防止のため事前追加)。Cloud Functions導入時は`functions/.env`で環境変数として管理する(同様に`.gitignore`済み)。
 
@@ -47,11 +47,13 @@ Step 3で `10168 → u01`（モックusers配列内の南野）のように、Fi
 
 `scheduledAt`を過ぎても自動では公開されない。予約投稿は「下書き+予定時刻メモ」の位置づけで、公開は管理者が「今すぐ配信」を押した時のみ行われる(自動配信の仕組み=Cloud Functions等は未実装)。
 
-**対応時期**: Cloud Functions導入時に、スケジュール実行(Cloud Scheduler等)でscheduledAt到来時に自動的にstatusをpublishedへ更新する処理を追加する想定。
+**対応時期**: `functions/`基盤(下記項番8で新設済み)にスケジュール実行(Cloud Scheduler、`onSchedule`)を追加し、scheduledAt到来時に自動的にstatusをpublishedへ更新する処理を実装する想定。
 
-## 5. 周知タブへのメール通知(将来構想・記録のみ)
+## 5. 周知タブへのメール通知(将来構想。詳細は[docs/メール通知_将来実装メモ.md](docs/メール通知_将来実装メモ.md)参照)
 
-将来的にセキュリティ問題がクリアできれば、希望者向けのメール通知機能を追加したい構想がある。報告タブで決定済みの「メール登録はいつでもできる仕様」およびパスワードセルフリセット構想(上記3. Firestoreに任意登録の実メール+Cloud Functions)と同じ基盤に乗る想定。今回はデータ設計上の拡張余地を意識するに留め、実装はしていない。
+将来的にセキュリティ問題がクリアできれば、希望者向けのメール通知機能を追加したい構想がある。報告タブで決定済みの「メール登録はいつでもできる仕様」およびパスワードセルフリセット構想(上記3. Firestoreに任意登録の実メール+Cloud Functions)と同じ基盤に乗る想定。設計・進め方の詳細は[docs/メール通知_将来実装メモ.md](docs/メール通知_将来実装メモ.md)にまとめる。
+
+**過去の試作について(2026-07-25発見・退避・削除済み)**: 本アプリのCloud Functions基盤新設(FCMプッシュ通知実装)以前に、Firebase Consoleから直接デプロイされた試作関数`sendAnnouncementEmail`(git履歴になし)が本番に残っていた。`announcements/{docId}`の作成(`priority=='high'`または`mustRead`)をトリガーに、`users.emailNotify==true`のユーザーへ`nodemailer`(Gmail)でメール送信する内容だった。ソース内にGmailアプリパスワードが直書きされていたため、認証情報を`<REDACTED>`に置換したうえで`docs/archive/sendAnnouncementEmail/`(`function-describe.json`+`src/`)に退避し、本番の関数自体は削除した(詳細は同ディレクトリ参照)。該当のGmailアプリパスワードは南野さんにより失効済み。実装する際はこの試作を参考にできるが、**シークレットはソースへの直書きではなく`functions/.env`または Secret Manager で管理すること**。
 
 ## 6. LINE連携は見送り(決定記録)
 
@@ -63,4 +65,21 @@ LINE連携(LINEログイン・LIFF等)はセキュリティ上の懸念により
 
 - **初回件数(対応済み・v0.2)**: `attachChannelListener()`(`index.html`)を`orderBy('createdAt','desc').limit(50)`+クライアント側`reverse()`に変更。従来の`orderBy('asc').limit(100)`は「最も古い100件」を取得する形になっており、101件目以降の新着が表示されない実質的なバグを内包していたため、読み取りコスト是正と同時に機能修正も行った。**チャンネル切替のたびに`currentChannelUnsub()`→再購読**する既存実装は変更していないため、同じチャンネルに戻るたびに初期スナップショット分(最大50件)が再度読み取り課金される点は残る(下記`persistentLocalCache`未対応と合わせて次フェーズの課題)。
 - **`persistentLocalCache`/`enablePersistence`(次フェーズ・単独対応可)**: 未実装。`index.html`の`const fbDb = firebase.firestore();`はデフォルト設定のままで、オフラインキャッシュは無効。有効化はアプリ全体で共有する`fbDb`インスタンスに影響するため、チャット以外の既存リスナー(announcements/manuals/kyt/reports/users)への影響確認を含めて対応する。
-- **90日超メッセージのアーカイブジョブ(次フェーズ・Cloud Functions導入時)**: 未実装。Cloud Functionsインフラ自体がこのプロジェクトに存在しない(項目2b/3/4と同じ制約)ため、Cloud Functions導入(項目3のパスワードリセット等)とまとめて設計する。
+- **90日超メッセージのアーカイブジョブ(次フェーズ)**: 未実装。`functions/`基盤は項番8で新設済みのため、次に着手する際はスケジュール関数(`onSchedule`)を追加する形で対応できる。
+
+## 8. FCMプッシュ通知(v0.3で実装。段階的展開の途中)
+
+このアプリで初めて`functions/`(Cloud Functions v2、Node 20、`asia-northeast1`)を新設した。5トリガー(`onAnnouncementNotify`/`onReportCreated`/`onReportReplyNotify`/`onManualCreated`/`cleanupStaleTokens`)+3callable(`sendUnreadReminder`/`subscribeToReport`/`estimateNotifyAudience`)。旧来の「アプリを開いている間だけ」の`Notification` API即時表示機構(`localStorage['fbNotifOptIn']`、`notifyNewReport`/`notifyNewAnnouncement`等)は撤去し、FCMに完全統合した。
+
+**段階的展開(オプトイン・ゲート)の現在地**:
+- Stage0(mainマージ直後): 通知オプトインUIは`fbUser.role==='admin'`、または`config/notifications.openToAllUsers===true`のときのみ表示(`canShowNotifyOptIn()`)。`config/notifications`は`{openToAllUsers:false}`で本番Firestoreに作成済み
+- Stage1(管理者実機検証): 未実施。南野さんの実機(iOS standalone / Android)でイベント発火・受信確認が必要
+- Stage2(一般開放): `config/notifications.openToAllUsers`を`true`に更新するだけでよい(コード変更・再マージ不要)
+
+**Stage0〜2の間の既知の空白期間**: 旧機構を撤去済みのため、一般ドライバーには通知機能が存在しない状態になる。旧機構はフォアグラウンド限定(アプリを開いている間だけ)で実質的な損失は小さいためこの空白は許容しているが、**Stage2への移行を長く保留しないこと**(南野さんの実機確認が完了次第、速やかにStage2へ進める)。
+
+**ユーザーコード変換規則の重複**: `request.auth.token.email`からユーザーコードを導く変換(`myCode()`相当)が、`firestore.rules`の`myCode()`と`functions/lib/auth.js`の`codeFromAuth()`の2箇所に存在する(SW/index.htmlのFirebase設定二重管理と同じ構図)。将来ログイン方式(疑似メールの形式等)を変える際は、両方を同時に直すこと。
+
+**channels.lastMessageのFunctions移行は今回スコープ外**: v0.2で暫定的に一般ユーザーへ開放している`channels.lastMessage`単独更新ルールを、将来的にCloud Functions側へ寄せる案があったが(FCM導入時に検討、との位置づけだった)、チャットには一切プッシュ通知を送らない方針と無関係な既存の割り切りであり、今回のスコープには含めなかった。対応する場合は別タスクとして工数を見積もる。
+
+**その他の既知の制約**: `firebase-functions-compat.js`は同一ページに`firebase-messaging`が読み込まれていると、callable呼び出しのたびに内部でFCMトークンを取得しようとする。`Notification.permission==='granted'`だがService Worker未登録の端末(通常は起きないが、VAPID鍵未設定時や初回登録が何らかの理由で失敗した場合)では、この内部処理が失敗しcallable呼び出し自体が失敗することを確認した(ローカル検証時に発見)。`registerFcmTokenIfPossible()`/`refreshFcmTokenIfNeeded()`がログイン時に確実にSW登録を試みる設計により通常は発生しないが、Stage1の実機検証で管理者操作系callable(`sendUnreadReminder`等)が原因不明で失敗する場合はこの可能性を疑うこと。
