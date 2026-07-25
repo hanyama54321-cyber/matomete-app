@@ -7,9 +7,9 @@
 - **リポジトリ**: `matomete-app`(安全配送まとめてアプリ)。単一ファイルSPA([index.html](index.html)、約7500行)+ Firebase(Firestore/Auth/Storage/**Cloud Functions/FCM**)。
 - **ブランチ運用**: `main`=本番公開中(GitHub Pages、Firebase接続版)、`develop`=開発中。リリース時は`develop`→`main`マージ(手順は[README.md](README.md)参照)。
 - **Firebaseプロジェクト**: `anzen-matomete-app`(Blazeプラン、asia-northeast1)。
-- **アプリバージョン**: **v0.3相当を develop に実装済み(mainは v0.2.3 のまま、マージは合図待ち)**。
+- **アプリバージョン**: **v0.3(mainへ本公開済み、GitHub Pages反映確認済み)**。マージコミット`dda1ef9`、タグ`v0.3`(ロールバック用`v0.2.3-pre-fcm`は旧mainの`7262635`に作成済み)。
 
-## 本セッション: FCMプッシュ通知の実装(develop、v0.3・マージは合図待ち)
+## 前セッション: FCMプッシュ通知の実装・本番マージ(v0.3・mainへ本公開済み)
 
 「FCMプッシュ通知 実装設計書 v2」(2026-07-24)に基づき実装。このアプリで**初めてCloud Functionsを導入**した。実装計画は3ラウンドの南野さんレビューを経て承認され、その内容に沿って実装している(計画の詳細な経緯はセッション内のやりとり参照、要点のみ以下に記録)。
 
@@ -30,7 +30,7 @@
 ### クライアント実装(`index.html`)
 
 - `firebase-messaging-compat.js`/`firebase-functions-compat.js`追加、`fbFunctions = firebase.app().functions('asia-northeast1')`
-- `FCM_VAPID_KEY`定数(現在空文字。**南野さんがFirebase Consoleで生成し次第、値を設定する必要あり**。Web Push証明書のページから取得)
+- `FCM_VAPID_KEY`定数(南野さんがFirebase Consoleで生成した公開鍵を設定済み。`index.html`1箇所のみに定義し、全`getToken()`呼び出しがこれを参照。公開鍵のためリポジトリに含めてよい)
 - トークンライフサイクル: `registerFcmTokenIfPossible()`/`refreshFcmTokenIfNeeded()`(ログイン時)/`deleteFcmTokenForThisDevice()`(ログアウト時、`signOut()`から`fbAuth.signOut()`より先にawait)。`tokenId`はトークン文字列のSHA-256ハッシュ(`sha256Hex()`、`crypto.subtle`)
 - `openNotifSettings()`を全面再設計: `Notification.permission`の`default`/`granted`/`denied`3分岐、5イベント(必読お知らせ/未読リマインダー/手順書追加/報告への回答/新規報告(admin限定))のトグル。`denied`時は端末別復帰手順を案内
 - `canShowNotifyOptIn()`によるStage0ゲート(`role==='admin'`または`config/notifications.openToAllUsers`)。`registerFcmTokenIfPossible`等もこのゲート配下
@@ -38,6 +38,7 @@
 - `saveReply()`に「通知して保存」チェックボックス追加(初回デフォルトON・2回目以降OFF)。`replyNotifyIntentAt`をreports本体に書き込み、Functions側が検知して送信
 - `submitFb()`に静的注記追加+匿名投稿時`subscribeAnonReportIfPossible()`をfire-and-forget呼び出し
 - **旧フォアグラウンド通知機構は完全撤去**: `notifyNewReport`/`notifyNewAnnouncement`/`enableReportNotifications`/`updateReportNotifUI`、`localStorage['fbNotifOptIn']`、報告タブの「新着報告の通知」カードHTML、および関連する`reportsAdminInitialLoadDone`/`announcementsInitialLoadDone`(存在意義が旧機構の誤発火防止のみだったため合わせて削除)
+- **ユーザーメニュー「通知設定」項目自体もStage0ゲート済み**(`#um-notif-btn`): 当初`openNotifSettings()`の中身だけをゲートしており、メニュー項目(導線)自体は全ロールに常時表示されていた不備をマージ前に発見・修正。乗務員マスタ等と同じ「デフォルトhidden+`updateNotifMenuVisibility()`で解除」パターンに統一し、`setRole()`と`config/notifications`ミラー到着時の両方で再評価する。本番URLでdriverロールをシミュレートして非表示を確認済み
 
 ### Service Worker(`firebase-messaging-sw.js`新規)
 
@@ -49,7 +50,12 @@
 
 ### 段階的展開(Stage0〜2)の現状
 
-Stage0(通知UIをadmin限定表示)まで実装済み・本番`config/notifications`作成済み。**Stage1(南野さんの実機でのイベント発火・受信確認)は未実施**。VAPID鍵が未設定のため、Stage1開始には南野さんの作業(Firebase Console → プロジェクト設定 → Cloud Messaging → ウェブ構成 → 鍵ペアの生成)が必要。Stage0〜2の間、旧機構撤去により一般ドライバーは通知機能を持たない空白期間になる(許容済み、詳細はTECH_DEBT.md項目8)。
+**mainマージ・本番公開済み(現在Stage0)。** develop→main `--no-ff`マージ(`dda1ef9`)、タグ`v0.3`。GitHub Pagesで`Ver.0.3`表示・コンソールエラーなしをライブ確認済み。マージ後、以下を本番URLで確認済み:
+- `config/notifications.openToAllUsers`が`false`のままであること(REST APIで直接確認)
+- driverロールをシミュレートし、ユーザーメニューに「通知設定」項目が表示されないこと(`#um-notif-btn`が`hidden`)
+- 周知・手順書・報告・チャット・KYTタブの表示に回帰がないこと
+
+VAPID鍵は南野さんが生成した公開鍵を`FCM_VAPID_KEY`に設定済み。**Stage1(南野さんの実機でのイベント発火・受信確認)は未実施、次回セッションの最優先タスク。** Stage1が完了し問題なければ、`config/notifications.openToAllUsers`を`true`に更新するだけでStage2(一般開放)に進める(コード変更・再マージ不要、**南野さんの判断待ち**)。Stage0〜2の間、旧機構撤去により一般ドライバーは通知機能を持たない空白期間になる(許容済み、詳細はTECH_DEBT.md項目8。長く保留しないこと)。
 
 ### 未検証・既知のリスク
 
@@ -167,7 +173,7 @@ npx firebase-tools deploy --only functions --project anzen-matomete-app
 npx firebase-tools deploy --only storage --project anzen-matomete-app
 ```
 
-現在169件のルールテストが全pass(`test/rules/{users,reports,manuals,storage,kyt,teams,announcements,channels,sessions,tokens,config}.test.js`)。`firestore.rules`/`firestore.indexes.json`・Cloud Functions(8関数)は本セッションで本番デプロイ済み。`index.html`側(FCMクライアント実装)はdevelopに実装済みでmainには未反映(合図待ち)。
+現在169件のルールテストが全pass(`test/rules/{users,reports,manuals,storage,kyt,teams,announcements,channels,sessions,tokens,config}.test.js`)。`firestore.rules`/`firestore.indexes.json`・Cloud Functions(8関数)・`index.html`(FCMクライアント実装)ともv0.3としてmainへマージ・本番デプロイ済み。
 
 ## コミット時の運用ルール(このセッションで一貫していた点)
 
@@ -181,7 +187,7 @@ npx firebase-tools deploy --only storage --project anzen-matomete-app
 
 ## 次にやるとよさそうなこと(優先度は南野さん判断)
 
-1. **[最優先]** VAPID鍵をFirebase Consoleで生成し、`index.html`の`FCM_VAPID_KEY`に設定する。設定後、南野さんの実機(iOS standalone / Android)でStage1(通知の許可→5イベントの発火→受信確認)を行う。
-2. Stage1が問題なければ、developをmainへマージ(合図があれば)→`config/notifications.openToAllUsers`を`true`に更新してStage2(一般開放)へ。長く保留しないこと。
+1. **[最優先]** v0.3はmainへマージ・本番公開済み、VAPID鍵も設定済み。**南野さんの実機(iOS standalone / Android)でStage1(通知の許可→5イベントの発火→受信確認)を行う。**
+2. Stage1が問題なければ、`config/notifications.openToAllUsers`を`true`に更新してStage2(一般開放)へ。コード変更・再マージ不要。長く保留しないこと(**南野さんの判断待ち**)。万一Stage1で問題が見つかった場合は`v0.2.3-pre-fcm`タグへのロールバックを検討。
 3. `st.currentUid`依存の残存箇所(モック周知データ・チャット未読・`recalcTeamCounts()`)を`fbUser.code`ベースへ統一(TECH_DEBT.md #1)。
 4. developに他の未反映変更が無いか確認しつつ、次のリリースがあればREADME.mdのリリース手順に従う。
