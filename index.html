@@ -1985,7 +1985,7 @@ header {
         </div>
         <span style="font-size:12px;color:var(--text-muted)">›</span>
       </button>
-      <button class="user-menu-item" onclick="openNotifSettings()">
+      <button id="um-notif-btn" class="user-menu-item hidden" onclick="openNotifSettings()">
         <span class="um-icon">🔔</span>
         <div style="flex:1">
           <div style="font-weight:700">通知設定</div>
@@ -3027,10 +3027,20 @@ function attachNotificationsConfigListener() {
   if (notificationsConfigUnsub) { notificationsConfigUnsub(); notificationsConfigUnsub = null; }
   notificationsConfigUnsub = fbDb.collection('config').doc('notifications').onSnapshot(snap => {
     notificationsConfig = snap.exists ? snap.data() : { openToAllUsers: false };
+    updateNotifMenuVisibility();
   }, err => {
     console.error('通知設定configの取得エラー:', err);
     notificationsConfig = { openToAllUsers: false };
+    updateNotifMenuVisibility();
   });
+}
+
+// ユーザーメニューの「通知設定」導線自体の表示可否。Stage0ではrole==='admin'のときのみ表示し、
+// 一般ユーザーには許可ダイアログへの入り口自体を見せない。configミラーの到着時にも再評価する
+// (ログイン直後、setRole()時点ではnotificationsConfigがまだnullのためデフォルト非表示になる)
+function updateNotifMenuVisibility() {
+  const btn = document.getElementById('um-notif-btn');
+  if (btn) btn.classList.toggle('hidden', !canShowNotifyOptIn());
 }
 
 // Stage0ゲート: 通知オプトインUIをこのユーザーに見せてよいか(admin、またはStage2で開放済み)
@@ -3582,6 +3592,7 @@ function setRole(role) {
   if (teamMgmtBtn) teamMgmtBtn.classList.toggle('hidden', role !== 'manager');
   const usageBtn = document.getElementById('um-usage-btn');
   if (usageBtn) usageBtn.classList.toggle('hidden', role !== 'manager');
+  updateNotifMenuVisibility(); // Stage0ゲート。ログイン直後はnotificationsConfig未着のためadmin以外は非表示のまま
 
   // メニュー内のチェックマーク切替（role-menu無効化に伴い要素が存在しない場合はスキップ）
   const chkDriver  = document.getElementById('role-check-driver');
