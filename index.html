@@ -10,7 +10,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <!-- PWA 基本設定 -->
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<!-- black-translucentではiOS standaloneでビューポート自体がinset-top分(実機計測で48pt)
+     短くなり、画面下端にページ背景色の帯が残る問題があった(v0.3.2で実測により特定)。
+     defaultではWebビューがステータスバーの下から始まり、この帯が発生しない -->
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="まとめてアプリ">
 <meta name="theme-color" content="#0D3D9E">
 <meta name="description" content="配送センター向け業務支援ポータル">
@@ -102,10 +105,11 @@ header {
   position: relative;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
-  /* standalone(ホーム画面追加)表示時、apple-mobile-web-app-status-bar-styleが
-     black-translucentのためステータスバー領域までアプリ描画が広がる。
-     safe-area-inset-topでヘッダー内容を押し下げてステータスバーとの重なりを防ぐ。
-     ブラウザ表示時はenv()が0になるため既存の見た目に影響しない */
+  /* apple-mobile-web-app-status-bar-styleはdefault(v0.3.2で変更)。
+     defaultではWebビューがステータスバーの下から始まるため、iOS standaloneでも
+     safe-area-inset-topは0になり、padding-topは実質0になる(ブラウザ表示時と同じ)。
+     env()指定はそのまま残す: 横向き時のノッチ(left/right)には引き続き必要で、
+     top側も将来styleを変えた場合やAndroid等での防御として無害に効くため */
   padding: env(safe-area-inset-top) calc(16px + env(safe-area-inset-right)) 0 calc(16px + env(safe-area-inset-left));
   display: flex;
   align-items: center;
@@ -1788,10 +1792,10 @@ header {
   margin-bottom: 16px;
 }
 
-/* ===== 診断オーバーレイ(v0.3.2-debug・一時的) =====
-   iOS standaloneのセーフエリア実測値を取得するための調査用UI。
-   数値取得後に撤去する。既存のレイアウトCSSには一切影響しないよう、
-   専用のクラス名のみで完結させている */
+/* ===== 診断オーバーレイ =====
+   iOS standaloneのセーフエリア実測値等を実機で確認するための隠し機能。
+   v0.3.2の白帯原因特定に使用し、現地でのトラブルシュートに有用なため常設とした。
+   既存のレイアウトCSSには一切影響しないよう、専用のクラス名のみで完結させている */
 #diag-overlay {
   position: fixed;
   top: 50%; left: 50%;
@@ -2499,8 +2503,8 @@ header {
 
 </div><!-- /#app -->
 
-<!-- 診断オーバーレイ(v0.3.2-debug・一時的)。#appの外側に置き、計測対象の
-     レイアウトに影響を与えないようにしている。数値取得後に撤去する -->
+<!-- 診断オーバーレイ(隠し機能)。#appの外側に置き、計測対象の
+     レイアウトに影響を与えないようにしている -->
 <div id="diag-overlay" style="display:none"></div>
 
 <script>
@@ -2510,7 +2514,7 @@ header {
 // ヘッダーバッジ・ユーザーメニュー・アプリ情報画面・利用状況計測(sessions.appVersion)は
 // すべてこの定数を参照する(#version-badge/#um-version-subtitleへは初期化処理でJSから反映、
 // アプリ情報画面・recordSession()は関数内で直接参照)
-const APP_VERSION = '0.3.2-debug';
+const APP_VERSION = '0.3.2';
 
 /* ===== データ ===== */
 
@@ -3514,6 +3518,7 @@ async function saveNotifPrefs() {
 
 // 更新履歴。git履歴・HANDOFF.md・TECH_DEBT.mdから裏の取れる範囲で記録する(過去分を遡って捏造しない)
 const CHANGELOG = [
+  { version: '0.3.2', items: ['iOS PWA standalone表示の白帯を解消(ステータスバー設定を変更)', '診断オーバーレイを追加(バージョン表記を3回タップ)'] },
   { version: '0.3.1', items: ['iOS PWA standalone表示のタブバー下白帯を修正', '周知の「反応」機能(未接続)を削除', '通知ベル・固定バッジ等の未実装表示を撤去'] },
   { version: '0.3', items: ['プッシュ通知(FCM)を追加', '通知設定を実データ化', '旧通知機構(アプリ起動中のみ)を廃止'] },
   { version: '0.2.2〜0.2.3', items: ['PWA standalone表示の不具合修正(ボトムナビ固定・スクロール)'] },
@@ -8227,12 +8232,12 @@ fbAuth.onAuthStateChanged(async (user) => {
   }
 });
 
-/* ===== 診断オーバーレイ(v0.3.2-debug・一時的) =====
-   iOS standaloneで画面下端に残る帯の原因を実測で特定するための調査用UI。
+/* ===== 診断オーバーレイ(隠し機能) =====
    ヘッダーのバージョンバッジを1.5秒以内に3回タップすると開閉する。
-   数値を取得したら次のコミットでこのブロックごと撤去する。
-   計測のみを行い、レイアウト系CSS(#app/#bottom-nav/body/html/meta viewport)は
-   一切変更していない。 */
+   v0.3.2でiOS standaloneの白帯の原因(ビューポート自体がinset-top分短い)を
+   実測で特定するために追加したもので、現地でのトラブルシュートに有用なため常設。
+   計測のみを行い、レイアウトには一切影響を与えない(オーバーレイは#appの外側、
+   env()計測用のダミー要素は計測直後にDOMから取り除く)。 */
 
 // env(safe-area-inset-*)の実測値をpxで取得する。position:fixedのダミー要素に
 // paddingとしてenv()を当て、getComputedStyleで解決後の値を読む方式
@@ -8302,7 +8307,7 @@ function diagRender() {
   const text = diagFormat(diagCollect());
   el.innerHTML = `
     <div class="diag-title">
-      <span>🔬 診断(v0.3.2-debug)</span>
+      <span>🔬 診断</span>
       <span style="font-size:10px;font-weight:400;opacity:.7">3回タップで閉じる</span>
     </div>
     <pre class="diag-body" id="diag-body"></pre>
