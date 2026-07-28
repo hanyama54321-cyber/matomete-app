@@ -1787,6 +1787,63 @@ header {
   font-size: 13px;
   margin-bottom: 16px;
 }
+
+/* ===== 診断オーバーレイ(v0.3.2-debug・一時的) =====
+   iOS standaloneのセーフエリア実測値を取得するための調査用UI。
+   数値取得後に撤去する。既存のレイアウトCSSには一切影響しないよう、
+   専用のクラス名のみで完結させている */
+#diag-overlay {
+  position: fixed;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 9999;
+  width: min(92vw, 420px);
+  max-height: 80vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  background: rgba(10, 16, 28, .96);
+  color: #E8F0FF;
+  border: 1px solid rgba(255,255,255,.25);
+  border-radius: 12px;
+  padding: 14px;
+  box-shadow: 0 8px 32px rgba(0,0,0,.5);
+}
+#diag-overlay .diag-title {
+  font-size: 13px; font-weight: 700;
+  margin-bottom: 10px;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+}
+#diag-overlay pre.diag-body {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+}
+#diag-overlay .diag-actions { display: flex; gap: 8px; margin-top: 12px; }
+#diag-overlay .diag-btn {
+  flex: 1;
+  font-family: inherit;
+  font-size: 12px; font-weight: 700;
+  padding: 9px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,.3);
+  background: rgba(255,255,255,.1);
+  color: #E8F0FF;
+}
+#diag-overlay .diag-btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+/* env()実測用のダミー要素。position:fixedでpaddingにenv()を当て、
+   getComputedStyleでpx値を読む。視覚・レイアウトには一切影響させない */
+#diag-probe {
+  position: fixed;
+  top: 0; left: 0;
+  width: 0; height: 0;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  visibility: hidden;
+  pointer-events: none;
+  z-index: -1;
+}
 </style>
 </head>
 <body>
@@ -2442,6 +2499,10 @@ header {
 
 </div><!-- /#app -->
 
+<!-- 診断オーバーレイ(v0.3.2-debug・一時的)。#appの外側に置き、計測対象の
+     レイアウトに影響を与えないようにしている。数値取得後に撤去する -->
+<div id="diag-overlay" style="display:none"></div>
+
 <script>
 'use strict';
 
@@ -2449,7 +2510,7 @@ header {
 // ヘッダーバッジ・ユーザーメニュー・アプリ情報画面・利用状況計測(sessions.appVersion)は
 // すべてこの定数を参照する(#version-badge/#um-version-subtitleへは初期化処理でJSから反映、
 // アプリ情報画面・recordSession()は関数内で直接参照)
-const APP_VERSION = '0.3.1';
+const APP_VERSION = '0.3.2-debug';
 
 /* ===== データ ===== */
 
@@ -8165,6 +8226,147 @@ fbAuth.onAuthStateChanged(async (user) => {
     showLoginError('ユーザー情報の取得に失敗しました。再度ログインしてください');
   }
 });
+
+/* ===== 診断オーバーレイ(v0.3.2-debug・一時的) =====
+   iOS standaloneで画面下端に残る帯の原因を実測で特定するための調査用UI。
+   ヘッダーのバージョンバッジを1.5秒以内に3回タップすると開閉する。
+   数値を取得したら次のコミットでこのブロックごと撤去する。
+   計測のみを行い、レイアウト系CSS(#app/#bottom-nav/body/html/meta viewport)は
+   一切変更していない。 */
+
+// env(safe-area-inset-*)の実測値をpxで取得する。position:fixedのダミー要素に
+// paddingとしてenv()を当て、getComputedStyleで解決後の値を読む方式
+function diagReadSafeAreaInsets() {
+  const probe = document.createElement('div');
+  probe.id = 'diag-probe';
+  document.body.appendChild(probe);
+  const cs = getComputedStyle(probe);
+  const insets = {
+    top: cs.paddingTop,
+    right: cs.paddingRight,
+    bottom: cs.paddingBottom,
+    left: cs.paddingLeft,
+  };
+  probe.remove();
+  return insets;
+}
+
+function diagCollect() {
+  const insets = diagReadSafeAreaInsets();
+  const vv = window.visualViewport;
+  const appEl = document.getElementById('app');
+  const navEl = document.getElementById('bottom-nav');
+  const rect = (el) => {
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { top: r.top, bottom: r.bottom, height: r.height };
+  };
+  return {
+    'APP_VERSION': APP_VERSION,
+    'navigator.standalone': String(window.navigator.standalone),
+    'display-mode:standalone': String(!!(window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)),
+    'window.innerWidth': window.innerWidth,
+    'window.innerHeight': window.innerHeight,
+    'visualViewport.width': vv ? vv.width : '(未対応)',
+    'visualViewport.height': vv ? vv.height : '(未対応)',
+    'visualViewport.offsetTop': vv ? vv.offsetTop : '(未対応)',
+    'visualViewport.offsetLeft': vv ? vv.offsetLeft : '(未対応)',
+    'documentElement.clientHeight': document.documentElement.clientHeight,
+    'screen.width': window.screen.width,
+    'screen.height': window.screen.height,
+    'env(safe-area-inset-top)': insets.top,
+    'env(safe-area-inset-right)': insets.right,
+    'env(safe-area-inset-bottom)': insets.bottom,
+    'env(safe-area-inset-left)': insets.left,
+    '#app rect': rect(appEl),
+    '#bottom-nav rect': rect(navEl),
+    'getComputedStyle(#app).position': appEl ? getComputedStyle(appEl).position : '(要素なし)',
+  };
+}
+
+// 収集した値をプレーンテキスト化する(コピー・表示で共通に使う)
+function diagFormat(data) {
+  const fmtNum = (n) => (typeof n === 'number' ? Math.round(n * 100) / 100 : n);
+  return Object.keys(data).map(k => {
+    const v = data[k];
+    if (v && typeof v === 'object') {
+      return `${k}:\n  top=${fmtNum(v.top)} bottom=${fmtNum(v.bottom)} height=${fmtNum(v.height)}`;
+    }
+    return `${k}: ${fmtNum(v)}`;
+  }).join('\n');
+}
+
+function diagRender() {
+  const el = document.getElementById('diag-overlay');
+  if (!el) return;
+  const text = diagFormat(diagCollect());
+  el.innerHTML = `
+    <div class="diag-title">
+      <span>🔬 診断(v0.3.2-debug)</span>
+      <span style="font-size:10px;font-weight:400;opacity:.7">3回タップで閉じる</span>
+    </div>
+    <pre class="diag-body" id="diag-body"></pre>
+    <div class="diag-actions">
+      <button class="diag-btn primary" onclick="diagCopy()">値をコピー</button>
+      <button class="diag-btn" onclick="diagRender()">再計測</button>
+      <button class="diag-btn" onclick="diagToggle(true)">閉じる</button>
+    </div>`;
+  // 値はtextContentで入れる(HTMLとして解釈させない)
+  el.querySelector('#diag-body').textContent = text;
+  el.style.display = '';
+}
+
+function diagToggle(forceClose) {
+  const el = document.getElementById('diag-overlay');
+  if (!el) return;
+  const isOpen = el.style.display !== 'none';
+  if (forceClose === true || isOpen) {
+    el.style.display = 'none';
+    el.innerHTML = '';
+    return;
+  }
+  diagRender();
+}
+
+async function diagCopy() {
+  const text = diagFormat(diagCollect());
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      // クリップボードAPIが使えない環境向けのフォールバック
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      ta.remove();
+    }
+    showToast('📋 診断値をコピーしました');
+  } catch (e) {
+    console.error('診断値のコピーに失敗:', e);
+    showToast('⚠️ コピーに失敗しました(画面の値を手入力してください)');
+  }
+}
+
+// バージョンバッジの3連タップ(1.5秒以内)で開閉。誤爆防止のため時間窓を設けている
+(function initDiagTapGesture() {
+  const badge = document.getElementById('version-badge');
+  if (!badge) return;
+  badge.style.cursor = 'pointer';
+  let taps = [];
+  badge.addEventListener('click', () => {
+    const now = Date.now();
+    taps.push(now);
+    taps = taps.filter(t => now - t <= 1500); // 直近1.5秒以内のタップのみ残す
+    if (taps.length >= 3) {
+      taps = [];
+      diagToggle();
+    }
+  });
+})();
 
 /* ===== 初期化 ===== */
 // ヘッダーバッジ・ユーザーメニューのバージョン表記をAPP_VERSION定数から反映(静的HTML直書きの値は初期表示用フォールバック)
