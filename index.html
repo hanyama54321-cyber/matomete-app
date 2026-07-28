@@ -2447,7 +2447,7 @@ header {
 // ヘッダーバッジ・ユーザーメニュー・アプリ情報画面・利用状況計測(sessions.appVersion)は
 // すべてこの定数を参照する(#version-badge/#um-version-subtitleへは初期化処理でJSから反映、
 // アプリ情報画面・recordSession()は関数内で直接参照)
-const APP_VERSION = '0.3';
+const APP_VERSION = '0.3.1';
 
 /* ===== データ ===== */
 
@@ -3451,6 +3451,7 @@ async function saveNotifPrefs() {
 
 // 更新履歴。git履歴・HANDOFF.md・TECH_DEBT.mdから裏の取れる範囲で記録する(過去分を遡って捏造しない)
 const CHANGELOG = [
+  { version: '0.3.1', items: ['iOS PWA standalone表示のタブバー下白帯を修正', '周知の「反応」機能(未接続)を削除', '通知ベル・固定バッジ等の未実装表示を撤去'] },
   { version: '0.3', items: ['プッシュ通知(FCM)を追加', '通知設定を実データ化', '旧通知機構(アプリ起動中のみ)を廃止'] },
   { version: '0.2.2〜0.2.3', items: ['PWA standalone表示の不具合修正(ボトムナビ固定・スクロール)'] },
   { version: '0.2.1', items: ['利用状況計測(DAU/WAU/MAU)を実装'] },

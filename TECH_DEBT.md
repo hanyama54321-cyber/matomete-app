@@ -81,3 +81,9 @@ LINE連携(LINEログイン・LIFF等)はセキュリティ上の懸念により
 **channels.lastMessageのFunctions移行は今回スコープ外**: v0.2で暫定的に一般ユーザーへ開放している`channels.lastMessage`単独更新ルールを、将来的にCloud Functions側へ寄せる案があったが(FCM導入時に検討、との位置づけだった)、チャットには一切プッシュ通知を送らない方針と無関係な既存の割り切りであり、今回のスコープには含めなかった。対応する場合は別タスクとして工数を見積もる。
 
 **その他の既知の制約**: `firebase-functions-compat.js`は同一ページに`firebase-messaging`が読み込まれていると、callable呼び出しのたびに内部でFCMトークンを取得しようとする。`Notification.permission==='granted'`だがService Worker未登録の端末(通常は起きないが、VAPID鍵未設定時や初回登録が何らかの理由で失敗した場合)では、この内部処理が失敗しcallable呼び出し自体が失敗することを確認した(ローカル検証時に発見)。`registerFcmTokenIfPossible()`/`refreshFcmTokenIfNeeded()`がログイン時に確実にSW登録を試みる設計により通常は発生しないが、Stage1の実機検証で管理者操作系callable(`sendUnreadReminder`等)が原因不明で失敗する場合はこの可能性を疑うこと。
+
+## 9. v0.3.1: セーフエリア余白修正・未接続UIの整理
+
+- **iOS PWA standaloneのタブバー下白帯(修正済み)**: `#app`が`height:100dvh`依存だったため、iOS standaloneでホームインジケータ領域を含まない高さになりアプリシェル全体が短くなっていた。`#app`を`position:fixed;inset:0`(`viewport-fit=cover`前提)に変更して解消。`#bottom-nav`は`position:fixed`に戻していない(v0.2.3で揺れ問題により撤去した経緯があるため)。**iOS実機での最終確認は依頼者側で実施予定。**
+- **周知タブの「この通知への反応」を削除(完了)**: `st.currentUid`ベースでローカルmutateのみ・Firestoreへの書き込み経路が無い未接続の凍結資産だったため全面削除した(UI・`setAnnFb()`・`showReach()`の反応集計・CSV出力列・CSS・モックデータの`reactions`フィールドを含む)。上記項目1の「モックusら配列統合」および今後の周知タブ改修時に、この機能が復活しないよう留意すること。
+- **通知ベル・周知タブの固定バッジは未実装のため表示を撤去した。実装は次バージョン以降。** ヘッダーの`🔔`ベルはid/onclickも無くタップしても何も起きない飾りだった(削除済み)。周知タブの`<span class="nav-badge">2</span>`もJSから更新されず常に「2」を表示し続ける誤情報だった(削除済み、`.nav-badge`のCSS自体は将来の未読バッジ実装のため残置)。未読件数を実際に算出する通知センターの実装自体は次バージョン以降のスコープとする。

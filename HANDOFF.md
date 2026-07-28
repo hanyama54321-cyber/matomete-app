@@ -1,13 +1,62 @@
-# 引き継ぎ書(2026-07-25時点)
+# 引き継ぎ書(2026-07-28時点)
 
 新しいセッションで作業を再開する際は、まずこのファイルと [README.md](README.md)・[TECH_DEBT.md](TECH_DEBT.md) を読んでください。
 
 ## プロジェクト概要
 
-- **リポジトリ**: `matomete-app`(安全配送まとめてアプリ)。単一ファイルSPA([index.html](index.html)、約7500行)+ Firebase(Firestore/Auth/Storage/**Cloud Functions/FCM**)。
+- **リポジトリ**: `matomete-app`(安全配送まとめてアプリ)。単一ファイルSPA([index.html](index.html)、約7400行)+ Firebase(Firestore/Auth/Storage/**Cloud Functions/FCM**)。
 - **ブランチ運用**: `main`=本番公開中(GitHub Pages、Firebase接続版)、`develop`=開発中。リリース時は`develop`→`main`マージ(手順は[README.md](README.md)参照)。
 - **Firebaseプロジェクト**: `anzen-matomete-app`(Blazeプラン、asia-northeast1)。
-- **アプリバージョン**: **v0.3(mainへ本公開済み、GitHub Pages反映確認済み)**。マージコミット`dda1ef9`、タグ`v0.3`(ロールバック用`v0.2.3-pre-fcm`は旧mainの`7262635`に作成済み)。
+- **アプリバージョン**: **developはv0.3.1(本セッションで実装、mainへの反映は依頼者判断)。mainはv0.3のまま**(マージコミット`dda1ef9`、タグ`v0.3`)。
+
+## 本セッション: v0.3.1 — iOS PWAセーフエリア余白修正・不要UI削除(develop、mainマージ・タグ付けは依頼者が実施)
+
+作業指示書に基づき、developブランチ上で作業1〜4を別コミットで実施した。**mainへのマージ・タグ付けは行っていない**(依頼者が実施する取り決めのため)。iOS実機での最終確認も依頼者側で行う。
+
+### 作業1: iOS PWA standaloneのタブバー下白帯を修正(`e56620f`)
+
+原因調査は依頼者側で完了済みの前提で着手。`#app`が`height:100vh; height:100dvh`依存だったため、iOS standaloneでは`100dvh`がホームインジケータ領域を含まない高さを返し、アプリシェル全体がsafe-area分だけ短くなって、その下に`body`の地の色(`--bg`)が露出していた。
+
+- `#app`([index.html:93付近](index.html:93))を`position:fixed; inset:0`に変更(`viewport-fit=cover`が既に指定されているため、safe-areaを含む画面全域に一致する)
+- 保険として`html`の背景を`#FFFFFF`に設定(万一継ぎ目が残っても`#bottom-nav`の背景色と揃うため目立たない)
+- `#bottom-nav`の`padding-bottom: env(safe-area-inset-bottom)`はそのまま維持、`position:fixed`には戻していない
+
+**回帰リスク・実機確認すべき観点**: v0.2.3で「iOS standaloneにおいて`#main`の慣性スクロール中に`position:fixed`要素(当時の`#bottom-nav`)が追従しきれず揺れる」問題があり、`#bottom-nav`の`position:fixed`を撤去した経緯がある([index.html:169-173](index.html:169)のコメント参照)。今回`position:fixed`にしたのはスクロールしない**アプリシェル`#app`自体**であり、スクロールコンテナ`#main`はその内側に留まるため、同じ症状は原理的に起きにくいと考えられるが、**iOS実機での揺れの再発有無は必ず確認すること**。あわせて、タブバー下の白帯が実際に解消されているかも確認する。
+
+### 作業2: 周知タブの「この通知への反応」を削除(`c9a0eec`)
+
+`st.currentUid`ベースでローカルmutateのみ・Firestoreへの書き込み経路が無い未接続の凍結資産だったため全面削除した。
+
+- 投稿詳細(driver向け)の反応UI・`reactions`配列・ボタン列・フィードバック確認テキスト
+- `st.annFeedback`/`setAnnFb()`(ボタンの唯一の呼び出し元だったため合わせて削除)
+- メンバー一覧の反応ピル — **指示書記載の2箇所(`showAnn`/`showReachPublic`)に加え、`showReach`にも同型の3箇所目があり、あわせて削除した**
+- `showReach()`のリアクション集計・「反応」統計カード・「リアクション内訳」カード(`.reach-stats`は3列→2列グリッドに調整)
+- `exportAnnCsv()`の「リアクション」列
+- CSS `.reaction-pill`
+- **モックデータ6件の`reactions:{...}`フィールドはオブジェクトごと削除した**(残置ではなく削除を選択。全読み取り箇所が消えるため残す理由がなく、凍結資産として維持しているreadBy/ackedByとは性質が異なると判断)
+- 実データマッピング側の互換目的`reactions:{}`空オブジェクト付与も削除
+
+`firestore.rules`にリアクション関連の許可ルールは元々存在しないことを確認済み(ルール変更なし、169件のテストに影響なし)。
+
+### 作業3: 通知設定の「メール」表記を削除(`8fbb403`)
+
+通知設定モーダルのサブタイトル「プッシュ通知 · メール」を「プッシュ通知」のみに修正([index.html:1984付近](index.html:1984))。`users.emailNotify`フィールド・`docs/archive/sendAnnouncementEmail/`は将来のメール通知実装のため手を付けていない。
+
+### 作業4: 機能していない通知UIの除去(`1a9e38c`)
+
+- ヘッダーの通知ベル(`.bell-btn`/`.bell-dot`)を削除。id/onclickも無くタップしても何も起きない v0.1 モック時代の飾りだった
+- 周知タブのハードコードされた`<span class="nav-badge">2</span>`を削除。JSから更新されず未読0件でも常に「2」と表示され続ける誤情報だった
+- `.nav-badge`のCSS自体は将来の未読バッジ実装で再利用するため残した。未読件数の算出ロジックは本バージョンのスコープ外(次バージョンで検討)
+
+### バージョン・ドキュメント(`APP_VERSION`更新含む、この後のコミットで反映)
+
+`APP_VERSION`を`'0.3.1'`に更新、`CHANGELOG`に`v0.3.1`エントリを追加。TECH_DEBT.md項目9に本セッションの内容を記録(反応機能・通知ベル/バッジは元々TECH_DEBT.mdに項目として存在しなかったため、既存項目の消し込みではなく新規記録)。
+
+### 検証内容
+
+- 全4作業についてブラウザプレビューで動作確認(driver/managerロールを模擬し、`showAnn`/`showReach`/`showReachPublic`/`exportAnnCsv`/`openAnnEditor`が例外を投げないこと、反応UI・ベル・バッジが完全に消えていること、既読・未読・到達率の表示自体は従来どおり機能することを確認)
+- インラインscriptの構文チェック(`vm.Script`によるパース検証)を各コミット後に実施、エラーなし
+- `firestore.rules`は変更していないため`npm run test:rules`は未実行(前回セッションの169件全passから変更なし)
 
 ## 前セッション: FCMプッシュ通知の実装・本番マージ(v0.3・mainへ本公開済み)
 
@@ -189,6 +238,10 @@ npx firebase-tools deploy --only storage --project anzen-matomete-app
 
 ## 次にやるとよさそうなこと(優先度は南野さん判断)
 
-1. **[最優先]** v0.3はmainへマージ・本番公開済み、VAPID鍵も設定済み、Stage1(2026-07-25)・**Stage2(2026-07-25、`config/notifications.openToAllUsers`をtrueに更新)も完了済み。** **残タスク: 一般ドライバーのメニューに「通知設定」が実際に表示されることを実機/実ログインで確認する**(メニュー項目のゲート修正`96db84f`はStage1検証より後に入ったため、この点だけ未確認。ブラウザ自動操作では実ログインを経由できず本セッションでは検証不可)。問題があれば`config/notifications.openToAllUsers`を`false`に戻すだけでStage0相当に即座に戻せる(コード変更不要)。それでも解消しない場合は`v0.2.3-pre-fcm`タグへのロールバックを検討。
+1. **[最優先]** v0.3.1(本セッションの作業1〜4)はdevelopに実装済み・**mainマージとタグ付けは依頼者側で実施する取り決め**。マージ前にiOS実機で以下を確認:
+   - タブバー下の白帯が解消されているか(作業1)
+   - `#app`を`position:fixed`化したことによるスクロール時の揺れ等の回帰が無いか(作業1、回帰リスクの詳細は本セッションのセクション参照)
+   - 周知・手順書・報告・チャット・KYTタブの表示に問題が無いか(作業2〜4)
+2. v0.3の残タスク: 一般ドライバーのメニューに「通知設定」が実際に表示されることを実機/実ログインで確認する(Stage2は`config/notifications.openToAllUsers`をtrueに更新済み。メニュー項目のゲート修正`96db84f`はStage1検証より後に入ったため未確認のまま)。問題があれば`config/notifications.openToAllUsers`を`false`に戻すだけでStage0相当に即座に戻せる。
 3. `st.currentUid`依存の残存箇所(モック周知データ・チャット未読・`recalcTeamCounts()`)を`fbUser.code`ベースへ統一(TECH_DEBT.md #1)。
 4. developに他の未反映変更が無いか確認しつつ、次のリリースがあればREADME.mdのリリース手順に従う。
