@@ -132,23 +132,6 @@ header {
 .logo-title { font-weight: 700; font-size: 13px; color: var(--navy); line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .logo-sub { font-size: 8px; letter-spacing: .16em; color: var(--primary); font-weight: 700; white-space: nowrap; }
 .header-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-.bell-btn {
-  position: relative;
-  width: 34px; height: 34px;
-  border-radius: 50%;
-  background: var(--surface2);
-  border: none;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 16px;
-}
-.bell-dot {
-  position: absolute;
-  top: 2px; right: 2px;
-  width: 8px; height: 8px;
-  border-radius: 50%;
-  background: var(--danger);
-  border: 1.5px solid white;
-}
 .avatar {
   width: 34px; height: 34px;
   border-radius: 50%;
@@ -1952,8 +1935,6 @@ header {
       <button id="admin-toggle-btn" class="admin-toggle-btn" onclick="toggleAdminMode()" style="display:none">
         <span>🛠</span><span id="admin-toggle-label">管理者</span>
       </button>
-      <!-- 通知ベル -->
-      <button class="bell-btn" aria-label="通知">🔔<span class="bell-dot"></span></button>
       <!-- ユーザーアバター（タップでユーザーメニュー） -->
       <button id="avatar-btn" class="avatar" style="border:none;cursor:pointer;position:relative" onclick="toggleUserMenu()">
         <span id="avatar-text">南</span>
@@ -2423,7 +2404,7 @@ header {
     <div class="nav-inner">
       <button class="nav-item active" data-tab="announcements" onclick="switchTab('announcements',this)">
         <span class="nav-indicator"></span>
-        <span class="nav-icon">📢<span class="nav-badge">2</span></span>
+        <span class="nav-icon">📢</span>
         <span class="nav-label">周知</span>
       </button>
       <button class="nav-item" data-tab="chat" onclick="switchTab('chat',this)">
