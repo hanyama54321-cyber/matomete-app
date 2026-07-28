@@ -76,7 +76,7 @@ const FCM_VAPID_KEY = 'BCd2jTEyxVABwbdktFURmnKhXr0gSvIYxI0rorVPMGcko6gW6zHx_W67Z
 
 /* ===== リセット ===== */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html { font-size: 16px; }
+html { font-size: 16px; background: #FFFFFF; }
 body {
   font-family: 'Noto Sans JP', 'BIZ UDPGothic', sans-serif;
   background: var(--bg);
@@ -91,10 +91,10 @@ a { text-decoration: none; color: inherit; }
 
 /* ===== アプリシェル ===== */
 #app {
+  position: fixed;
+  inset: 0;              /* viewport-fit=cover 下で画面全体を確実に覆う */
   display: flex;
   flex-direction: column;
-  height: 100vh;
-  height: 100dvh;
 }
 
 /* ===== ヘッダー ===== */
