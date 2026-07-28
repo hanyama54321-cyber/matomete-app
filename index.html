@@ -1238,8 +1238,10 @@ header {
   margin-top: 2px;
 }
 
+/* 既定は3列。カード枚数が異なる箇所(お知らせの到達率詳細=2枚)は
+   利用側でgrid-template-columnsをインライン指定して上書きする */
 .reach-stats {
-  display: grid; grid-template-columns: repeat(2, 1fr);
+  display: grid; grid-template-columns: repeat(3, 1fr);
   gap: 8px;
   margin-bottom: 14px;
 }
@@ -4947,7 +4949,7 @@ async function showReach(id) {
       </div>
     </div>
 
-    <div class="reach-stats">
+    <div class="reach-stats" style="grid-template-columns:repeat(2,1fr)">
       <div class="reach-stat-card">
         <div class="reach-stat-num" style="color:var(--safe)">${reach.readCount}</div>
         <div class="reach-stat-lbl">既読</div>
