@@ -1,15 +1,65 @@
-# 引き継ぎ書(2026-07-25時点)
+# 引き継ぎ書(2026-07-28時点)
 
 新しいセッションで作業を再開する際は、まずこのファイルと [README.md](README.md)・[TECH_DEBT.md](TECH_DEBT.md) を読んでください。
 
 ## プロジェクト概要
 
-- **リポジトリ**: `matomete-app`(安全配送まとめてアプリ)。単一ファイルSPA([index.html](index.html)、約7500行)+ Firebase(Firestore/Auth/Storage/**Cloud Functions/FCM**)。
+- **リポジトリ**: `matomete-app`(安全配送まとめてアプリ)。単一ファイルSPA([index.html](index.html)、約7400行)+ Firebase(Firestore/Auth/Storage/**Cloud Functions/FCM**)。
 - **ブランチ運用**: `main`=本番公開中(GitHub Pages、Firebase接続版)、`develop`=開発中。リリース時は`develop`→`main`マージ(手順は[README.md](README.md)参照)。
 - **Firebaseプロジェクト**: `anzen-matomete-app`(Blazeプラン、asia-northeast1)。
-- **アプリバージョン**: **v0.3相当を develop に実装済み(mainは v0.2.3 のまま、マージは合図待ち)**。
+- **アプリバージョン**: **developはv0.3.1(本セッションで実装、mainへの反映は依頼者判断)。mainはv0.3のまま**(マージコミット`dda1ef9`、タグ`v0.3`)。
 
-## 本セッション: FCMプッシュ通知の実装(develop、v0.3・マージは合図待ち)
+## 本セッション: v0.3.1 — iOS PWAセーフエリア余白修正・不要UI削除(develop、mainマージ・タグ付けは依頼者が実施)
+
+作業指示書に基づき、developブランチ上で作業1〜4を別コミットで実施した。**mainへのマージ・タグ付けは行っていない**(依頼者が実施する取り決めのため)。iOS実機での最終確認も依頼者側で行う。
+
+### 作業1: iOS PWA standaloneのタブバー下白帯を修正(`e56620f`)
+
+原因調査は依頼者側で完了済みの前提で着手。`#app`が`height:100vh; height:100dvh`依存だったため、iOS standaloneでは`100dvh`がホームインジケータ領域を含まない高さを返し、アプリシェル全体がsafe-area分だけ短くなって、その下に`body`の地の色(`--bg`)が露出していた。
+
+- `#app`([index.html:93付近](index.html:93))を`position:fixed; inset:0`に変更(`viewport-fit=cover`が既に指定されているため、safe-areaを含む画面全域に一致する)
+- 保険として`html`の背景を`#FFFFFF`に設定(万一継ぎ目が残っても`#bottom-nav`の背景色と揃うため目立たない)
+- `#bottom-nav`の`padding-bottom: env(safe-area-inset-bottom)`はそのまま維持、`position:fixed`には戻していない
+
+**回帰リスク・実機確認すべき観点**: v0.2.3で「iOS standaloneにおいて`#main`の慣性スクロール中に`position:fixed`要素(当時の`#bottom-nav`)が追従しきれず揺れる」問題があり、`#bottom-nav`の`position:fixed`を撤去した経緯がある([index.html:169-173](index.html:169)のコメント参照)。今回`position:fixed`にしたのはスクロールしない**アプリシェル`#app`自体**であり、スクロールコンテナ`#main`はその内側に留まるため、同じ症状は原理的に起きにくいと考えられるが、**iOS実機での揺れの再発有無は必ず確認すること**。あわせて、タブバー下の白帯が実際に解消されているかも確認する。
+
+### 作業2: 周知タブの「この通知への反応」を削除(`c9a0eec`)
+
+`st.currentUid`ベースでローカルmutateのみ・Firestoreへの書き込み経路が無い未接続の凍結資産だったため全面削除した。
+
+- 投稿詳細(driver向け)の反応UI・`reactions`配列・ボタン列・フィードバック確認テキスト
+- `st.annFeedback`/`setAnnFb()`(ボタンの唯一の呼び出し元だったため合わせて削除)
+- メンバー一覧の反応ピル — **指示書記載の2箇所(`showAnn`/`showReachPublic`)に加え、`showReach`にも同型の3箇所目があり、あわせて削除した**
+- `showReach()`のリアクション集計・「反応」統計カード・「リアクション内訳」カード
+  - **当初、統計カードが3枚→2枚になったことに合わせて共有クラス`.reach-stats`のCSS自体を`repeat(3,1fr)`→`repeat(2,1fr)`に変更してしまい、同じクラスを使うKYT管理画面(達成状況、カード3枚のまま)を2+1に折り返して崩す不具合を作り込んだ**(依頼者の指摘により発覚)。CSSは`repeat(3,1fr)`に戻し、お知らせ側の要素にのみ`style="grid-template-columns:repeat(2,1fr)"`をインライン指定する形に修正済み。**`.reach-stats`は お知らせ到達率詳細([index.html:4952](index.html:4952))と KYT達成状況([index.html:6246](index.html:6246))で共有されているクラスなので、今後カード枚数を変える際は必ず利用側で上書きすること。**
+- `exportAnnCsv()`の「リアクション」列
+- CSS `.reaction-pill`
+- **モックデータ6件の`reactions:{...}`フィールドはオブジェクトごと削除した**(残置ではなく削除を選択。全読み取り箇所が消えるため残す理由がなく、凍結資産として維持しているreadBy/ackedByとは性質が異なると判断)
+- 実データマッピング側の互換目的`reactions:{}`空オブジェクト付与も削除
+
+`firestore.rules`にリアクション関連の許可ルールは元々存在しないことを確認済み(ルール変更なし、169件のテストに影響なし)。
+
+### 作業3: 通知設定の「メール」表記を削除(`8fbb403`)
+
+通知設定モーダルのサブタイトル「プッシュ通知 · メール」を「プッシュ通知」のみに修正([index.html:1984付近](index.html:1984))。`users.emailNotify`フィールド・`docs/archive/sendAnnouncementEmail/`は将来のメール通知実装のため手を付けていない。
+
+### 作業4: 機能していない通知UIの除去(`1a9e38c`)
+
+- ヘッダーの通知ベル(`.bell-btn`/`.bell-dot`)を削除。id/onclickも無くタップしても何も起きない v0.1 モック時代の飾りだった
+- 周知タブのハードコードされた`<span class="nav-badge">2</span>`を削除。JSから更新されず未読0件でも常に「2」と表示され続ける誤情報だった
+- `.nav-badge`のCSS自体は将来の未読バッジ実装で再利用するため残した。未読件数の算出ロジックは本バージョンのスコープ外(次バージョンで検討)
+
+### バージョン・ドキュメント(`APP_VERSION`更新含む、この後のコミットで反映)
+
+`APP_VERSION`を`'0.3.1'`に更新、`CHANGELOG`に`v0.3.1`エントリを追加。TECH_DEBT.md項目9に本セッションの内容を記録(反応機能・通知ベル/バッジは元々TECH_DEBT.mdに項目として存在しなかったため、既存項目の消し込みではなく新規記録)。
+
+### 検証内容
+
+- 全4作業についてブラウザプレビューで動作確認(driver/managerロールを模擬し、`showAnn`/`showReach`/`showReachPublic`/`exportAnnCsv`/`openAnnEditor`が例外を投げないこと、反応UI・ベル・バッジが完全に消えていること、既読・未読・到達率の表示自体は従来どおり機能することを確認)
+- インラインscriptの構文チェック(`vm.Script`によるパース検証)を各コミット後に実施、エラーなし
+- `firestore.rules`は変更していないため`npm run test:rules`は未実行(前回セッションの169件全passから変更なし)
+
+## 前セッション: FCMプッシュ通知の実装・本番マージ(v0.3・mainへ本公開済み)
 
 「FCMプッシュ通知 実装設計書 v2」(2026-07-24)に基づき実装。このアプリで**初めてCloud Functionsを導入**した。実装計画は3ラウンドの南野さんレビューを経て承認され、その内容に沿って実装している(計画の詳細な経緯はセッション内のやりとり参照、要点のみ以下に記録)。
 
@@ -30,7 +80,7 @@
 ### クライアント実装(`index.html`)
 
 - `firebase-messaging-compat.js`/`firebase-functions-compat.js`追加、`fbFunctions = firebase.app().functions('asia-northeast1')`
-- `FCM_VAPID_KEY`定数(現在空文字。**南野さんがFirebase Consoleで生成し次第、値を設定する必要あり**。Web Push証明書のページから取得)
+- `FCM_VAPID_KEY`定数(南野さんがFirebase Consoleで生成した公開鍵を設定済み。`index.html`1箇所のみに定義し、全`getToken()`呼び出しがこれを参照。公開鍵のためリポジトリに含めてよい)
 - トークンライフサイクル: `registerFcmTokenIfPossible()`/`refreshFcmTokenIfNeeded()`(ログイン時)/`deleteFcmTokenForThisDevice()`(ログアウト時、`signOut()`から`fbAuth.signOut()`より先にawait)。`tokenId`はトークン文字列のSHA-256ハッシュ(`sha256Hex()`、`crypto.subtle`)
 - `openNotifSettings()`を全面再設計: `Notification.permission`の`default`/`granted`/`denied`3分岐、5イベント(必読お知らせ/未読リマインダー/手順書追加/報告への回答/新規報告(admin限定))のトグル。`denied`時は端末別復帰手順を案内
 - `canShowNotifyOptIn()`によるStage0ゲート(`role==='admin'`または`config/notifications.openToAllUsers`)。`registerFcmTokenIfPossible`等もこのゲート配下
@@ -38,6 +88,7 @@
 - `saveReply()`に「通知して保存」チェックボックス追加(初回デフォルトON・2回目以降OFF)。`replyNotifyIntentAt`をreports本体に書き込み、Functions側が検知して送信
 - `submitFb()`に静的注記追加+匿名投稿時`subscribeAnonReportIfPossible()`をfire-and-forget呼び出し
 - **旧フォアグラウンド通知機構は完全撤去**: `notifyNewReport`/`notifyNewAnnouncement`/`enableReportNotifications`/`updateReportNotifUI`、`localStorage['fbNotifOptIn']`、報告タブの「新着報告の通知」カードHTML、および関連する`reportsAdminInitialLoadDone`/`announcementsInitialLoadDone`(存在意義が旧機構の誤発火防止のみだったため合わせて削除)
+- **ユーザーメニュー「通知設定」項目自体もStage0ゲート済み**(`#um-notif-btn`): 当初`openNotifSettings()`の中身だけをゲートしており、メニュー項目(導線)自体は全ロールに常時表示されていた不備をマージ前に発見・修正。乗務員マスタ等と同じ「デフォルトhidden+`updateNotifMenuVisibility()`で解除」パターンに統一し、`setRole()`と`config/notifications`ミラー到着時の両方で再評価する。本番URLでdriverロールをシミュレートして非表示を確認済み
 
 ### Service Worker(`firebase-messaging-sw.js`新規)
 
@@ -49,7 +100,14 @@
 
 ### 段階的展開(Stage0〜2)の現状
 
-Stage0(通知UIをadmin限定表示)まで実装済み・本番`config/notifications`作成済み。**Stage1(南野さんの実機でのイベント発火・受信確認)は未実施**。VAPID鍵が未設定のため、Stage1開始には南野さんの作業(Firebase Console → プロジェクト設定 → Cloud Messaging → ウェブ構成 → 鍵ペアの生成)が必要。Stage0〜2の間、旧機構撤去により一般ドライバーは通知機能を持たない空白期間になる(許容済み、詳細はTECH_DEBT.md項目8)。
+**Stage2適用済み(2026-07-25)。`config/notifications.openToAllUsers`を`true`に更新した。** mainマージ・本番公開(develop→main `--no-ff`、`dda1ef9`、タグ`v0.3`)、VAPID鍵設定、Stage1(南野さんの実機での5イベント受信・ロック画面文言・タップ後の遷移・ログアウト時のトークン削除確認)を経て、南野さんの判断によりStage2へ移行した。
+
+- サーバー側の値は認証済みREST API読み取りで`true`(更新時刻込み)を確認済み
+- クライアント側の表示切替(`#um-notif-btn`の表示、`updateNotifMenuVisibility()`)は、Stage0時点で`openToAllUsers:true`を模擬注入して動作確認済み(このロジック自体はconfig変更の影響を受けない)
+- **ブラウザの自動操作では実際の認証ログインを経由できないため、Stage2移行後に「一般ドライバーが実機/実際のログインでメニューに『通知設定』が表示されること」は本セッションでは直接確認できていない。** 南野さんまたはドライバーアカウントでの実機確認を推奨(HANDOFF.md記載の申し送り事項どおり)
+- Stage0〜2の間の通知空白期間はこれで解消。旧機構撤去により一般ドライバーが通知機能を持たなかった期間は終了した
+
+万一問題が見つかった場合は、`config/notifications.openToAllUsers`を`false`へ戻すだけでStage0相当に即座に戻せる(コード変更不要)。それでも解消しない場合は`v0.2.3-pre-fcm`タグへのロールバックを検討。
 
 ### 未検証・既知のリスク
 
@@ -136,7 +194,7 @@ iPhoneのホーム画面追加(standalone)表示で、`#bottom-nav`(下部タブ
   5. 周知タブへのメール通知(将来構想。詳細は[docs/メール通知_将来実装メモ.md](docs/メール通知_将来実装メモ.md))。
   6. LINE連携は見送り(決定記録)。
   7. チャットの読み取りコスト設計(初回件数是正のみ対応済み、`persistentLocalCache`・90日超アーカイブは未対応)。
-  8. **FCMプッシュ通知(v0.3)**: Stage1(実機検証)未実施。ユーザーコード変換規則(`myCode()`相当)がrulesとfunctionsの2箇所にある点、Stage0〜2の通知空白期間の申し送りを含む。
+  8. **FCMプッシュ通知(v0.3)**: mainマージ済み・Stage1完了(2026-07-25、実機検証済み)・**Stage2適用済み(2026-07-25、`config/notifications.openToAllUsers`をtrueに更新)**。一般ドライバーへのメニュー項目表示は実機での最終確認が未実施(申し送り参照)。ユーザーコード変換規則(`myCode()`相当)がrulesとfunctionsの2箇所にある点も引き続き記録。
 
 ## 開発環境の状態(このマシン固有)
 
@@ -167,7 +225,7 @@ npx firebase-tools deploy --only functions --project anzen-matomete-app
 npx firebase-tools deploy --only storage --project anzen-matomete-app
 ```
 
-現在169件のルールテストが全pass(`test/rules/{users,reports,manuals,storage,kyt,teams,announcements,channels,sessions,tokens,config}.test.js`)。`firestore.rules`/`firestore.indexes.json`・Cloud Functions(8関数)は本セッションで本番デプロイ済み。`index.html`側(FCMクライアント実装)はdevelopに実装済みでmainには未反映(合図待ち)。
+現在169件のルールテストが全pass(`test/rules/{users,reports,manuals,storage,kyt,teams,announcements,channels,sessions,tokens,config}.test.js`)。`firestore.rules`/`firestore.indexes.json`・Cloud Functions(8関数)・`index.html`(FCMクライアント実装)ともv0.3としてmainへマージ・本番デプロイ済み。
 
 ## コミット時の運用ルール(このセッションで一貫していた点)
 
@@ -181,7 +239,10 @@ npx firebase-tools deploy --only storage --project anzen-matomete-app
 
 ## 次にやるとよさそうなこと(優先度は南野さん判断)
 
-1. **[最優先]** VAPID鍵をFirebase Consoleで生成し、`index.html`の`FCM_VAPID_KEY`に設定する。設定後、南野さんの実機(iOS standalone / Android)でStage1(通知の許可→5イベントの発火→受信確認)を行う。
-2. Stage1が問題なければ、developをmainへマージ(合図があれば)→`config/notifications.openToAllUsers`を`true`に更新してStage2(一般開放)へ。長く保留しないこと。
+1. **[最優先]** v0.3.1(本セッションの作業1〜4)はdevelopに実装済み・**mainマージとタグ付けは依頼者側で実施する取り決め**。マージ前にiOS実機で以下を確認:
+   - タブバー下の白帯が解消されているか(作業1)
+   - `#app`を`position:fixed`化したことによるスクロール時の揺れ等の回帰が無いか(作業1、回帰リスクの詳細は本セッションのセクション参照)
+   - 周知・手順書・報告・チャット・KYTタブの表示に問題が無いか(作業2〜4)
+2. v0.3の残タスク: 一般ドライバーのメニューに「通知設定」が実際に表示されることを実機/実ログインで確認する(Stage2は`config/notifications.openToAllUsers`をtrueに更新済み。メニュー項目のゲート修正`96db84f`はStage1検証より後に入ったため未確認のまま)。問題があれば`config/notifications.openToAllUsers`を`false`に戻すだけでStage0相当に即座に戻せる。
 3. `st.currentUid`依存の残存箇所(モック周知データ・チャット未読・`recalcTeamCounts()`)を`fbUser.code`ベースへ統一(TECH_DEBT.md #1)。
 4. developに他の未反映変更が無いか確認しつつ、次のリリースがあればREADME.mdのリリース手順に従う。

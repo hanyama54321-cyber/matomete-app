@@ -67,19 +67,23 @@ LINE連携(LINEログイン・LIFF等)はセキュリティ上の懸念により
 - **`persistentLocalCache`/`enablePersistence`(次フェーズ・単独対応可)**: 未実装。`index.html`の`const fbDb = firebase.firestore();`はデフォルト設定のままで、オフラインキャッシュは無効。有効化はアプリ全体で共有する`fbDb`インスタンスに影響するため、チャット以外の既存リスナー(announcements/manuals/kyt/reports/users)への影響確認を含めて対応する。
 - **90日超メッセージのアーカイブジョブ(次フェーズ)**: 未実装。`functions/`基盤は項番8で新設済みのため、次に着手する際はスケジュール関数(`onSchedule`)を追加する形で対応できる。
 
-## 8. FCMプッシュ通知(v0.3で実装。段階的展開の途中)
+## 8. FCMプッシュ通知(v0.3で実装。段階的展開はStage2まで完了)
 
 このアプリで初めて`functions/`(Cloud Functions v2、Node 20、`asia-northeast1`)を新設した。5トリガー(`onAnnouncementNotify`/`onReportCreated`/`onReportReplyNotify`/`onManualCreated`/`cleanupStaleTokens`)+3callable(`sendUnreadReminder`/`subscribeToReport`/`estimateNotifyAudience`)。旧来の「アプリを開いている間だけ」の`Notification` API即時表示機構(`localStorage['fbNotifOptIn']`、`notifyNewReport`/`notifyNewAnnouncement`等)は撤去し、FCMに完全統合した。
 
-**段階的展開(オプトイン・ゲート)の現在地**:
-- Stage0(mainマージ直後): 通知オプトインUIは`fbUser.role==='admin'`、または`config/notifications.openToAllUsers===true`のときのみ表示(`canShowNotifyOptIn()`)。`config/notifications`は`{openToAllUsers:false}`で本番Firestoreに作成済み
-- Stage1(管理者実機検証): 未実施。南野さんの実機(iOS standalone / Android)でイベント発火・受信確認が必要
-- Stage2(一般開放): `config/notifications.openToAllUsers`を`true`に更新するだけでよい(コード変更・再マージ不要)
-
-**Stage0〜2の間の既知の空白期間**: 旧機構を撤去済みのため、一般ドライバーには通知機能が存在しない状態になる。旧機構はフォアグラウンド限定(アプリを開いている間だけ)で実質的な損失は小さいためこの空白は許容しているが、**Stage2への移行を長く保留しないこと**(南野さんの実機確認が完了次第、速やかにStage2へ進める)。
+**段階的展開(オプトイン・ゲート)の経緯**:
+- Stage0(2026-07-25、mainマージ直後): 通知オプトインUIは`fbUser.role==='admin'`、または`config/notifications.openToAllUsers===true`のときのみ表示(`canShowNotifyOptIn()`)。`config/notifications`は`{openToAllUsers:false}`で本番Firestoreに作成
+- Stage1(2026-07-25、南野さんの実機検証): iOS standalone / Androidの実機で5イベントの受信・ロック画面文言・タップ後の遷移・ログアウト時のトークン削除を確認済み
+- **Stage2(2026-07-25、一般開放・適用済み)**: `config/notifications.openToAllUsers`を`true`に更新済み。**一般ドライバーが実際のログインでメニューに「通知設定」項目が表示されることの実機確認は未実施**(ブラウザ自動操作では認証ログインを経由できないため。南野さんまたはドライバーアカウントでの確認を推奨)。問題があれば`openToAllUsers`を`false`に戻すだけでStage0相当に即座に戻せる
 
 **ユーザーコード変換規則の重複**: `request.auth.token.email`からユーザーコードを導く変換(`myCode()`相当)が、`firestore.rules`の`myCode()`と`functions/lib/auth.js`の`codeFromAuth()`の2箇所に存在する(SW/index.htmlのFirebase設定二重管理と同じ構図)。将来ログイン方式(疑似メールの形式等)を変える際は、両方を同時に直すこと。
 
 **channels.lastMessageのFunctions移行は今回スコープ外**: v0.2で暫定的に一般ユーザーへ開放している`channels.lastMessage`単独更新ルールを、将来的にCloud Functions側へ寄せる案があったが(FCM導入時に検討、との位置づけだった)、チャットには一切プッシュ通知を送らない方針と無関係な既存の割り切りであり、今回のスコープには含めなかった。対応する場合は別タスクとして工数を見積もる。
 
 **その他の既知の制約**: `firebase-functions-compat.js`は同一ページに`firebase-messaging`が読み込まれていると、callable呼び出しのたびに内部でFCMトークンを取得しようとする。`Notification.permission==='granted'`だがService Worker未登録の端末(通常は起きないが、VAPID鍵未設定時や初回登録が何らかの理由で失敗した場合)では、この内部処理が失敗しcallable呼び出し自体が失敗することを確認した(ローカル検証時に発見)。`registerFcmTokenIfPossible()`/`refreshFcmTokenIfNeeded()`がログイン時に確実にSW登録を試みる設計により通常は発生しないが、Stage1の実機検証で管理者操作系callable(`sendUnreadReminder`等)が原因不明で失敗する場合はこの可能性を疑うこと。
+
+## 9. v0.3.1: セーフエリア余白修正・未接続UIの整理
+
+- **iOS PWA standaloneのタブバー下白帯(修正済み)**: `#app`が`height:100dvh`依存だったため、iOS standaloneでホームインジケータ領域を含まない高さになりアプリシェル全体が短くなっていた。`#app`を`position:fixed;inset:0`(`viewport-fit=cover`前提)に変更して解消。`#bottom-nav`は`position:fixed`に戻していない(v0.2.3で揺れ問題により撤去した経緯があるため)。**iOS実機での最終確認は依頼者側で実施予定。**
+- **周知タブの「この通知への反応」を削除(完了)**: `st.currentUid`ベースでローカルmutateのみ・Firestoreへの書き込み経路が無い未接続の凍結資産だったため全面削除した(UI・`setAnnFb()`・`showReach()`の反応集計・CSV出力列・CSS・モックデータの`reactions`フィールドを含む)。上記項目1の「モックusら配列統合」および今後の周知タブ改修時に、この機能が復活しないよう留意すること。
+- **通知ベル・周知タブの固定バッジは未実装のため表示を撤去した。実装は次バージョン以降。** ヘッダーの`🔔`ベルはid/onclickも無くタップしても何も起きない飾りだった(削除済み)。周知タブの`<span class="nav-badge">2</span>`もJSから更新されず常に「2」を表示し続ける誤情報だった(削除済み、`.nav-badge`のCSS自体は将来の未読バッジ実装のため残置)。未読件数を実際に算出する通知センターの実装自体は次バージョン以降のスコープとする。

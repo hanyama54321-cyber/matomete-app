@@ -76,7 +76,7 @@ const FCM_VAPID_KEY = 'BCd2jTEyxVABwbdktFURmnKhXr0gSvIYxI0rorVPMGcko6gW6zHx_W67Z
 
 /* ===== リセット ===== */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html { font-size: 16px; }
+html { font-size: 16px; background: #FFFFFF; }
 body {
   font-family: 'Noto Sans JP', 'BIZ UDPGothic', sans-serif;
   background: var(--bg);
@@ -91,10 +91,10 @@ a { text-decoration: none; color: inherit; }
 
 /* ===== アプリシェル ===== */
 #app {
+  position: fixed;
+  inset: 0;              /* viewport-fit=cover 下で画面全体を確実に覆う */
   display: flex;
   flex-direction: column;
-  height: 100vh;
-  height: 100dvh;
 }
 
 /* ===== ヘッダー ===== */
@@ -132,23 +132,6 @@ header {
 .logo-title { font-weight: 700; font-size: 13px; color: var(--navy); line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .logo-sub { font-size: 8px; letter-spacing: .16em; color: var(--primary); font-weight: 700; white-space: nowrap; }
 .header-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-.bell-btn {
-  position: relative;
-  width: 34px; height: 34px;
-  border-radius: 50%;
-  background: var(--surface2);
-  border: none;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 16px;
-}
-.bell-dot {
-  position: absolute;
-  top: 2px; right: 2px;
-  width: 8px; height: 8px;
-  border-radius: 50%;
-  background: var(--danger);
-  border: 1.5px solid white;
-}
 .avatar {
   width: 34px; height: 34px;
   border-radius: 50%;
@@ -1255,6 +1238,8 @@ header {
   margin-top: 2px;
 }
 
+/* 既定は3列。カード枚数が異なる箇所(お知らせの到達率詳細=2枚)は
+   利用側でgrid-template-columnsをインライン指定して上書きする */
 .reach-stats {
   display: grid; grid-template-columns: repeat(3, 1fr);
   gap: 8px;
@@ -1313,14 +1298,6 @@ header {
   border-bottom: 1px solid var(--border);
   display: flex; justify-content: space-between; align-items: center;
 }
-.reaction-pill {
-  display: inline-flex; align-items: center;
-  font-size: 11px; padding: 2px 7px;
-  background: var(--surface2);
-  border-radius: 999px;
-  margin-left: 6px;
-}
-
 /* ===== 予約配信 ===== */
 .scheduled-badge {
   display: inline-flex; align-items: center; gap: 4px;
@@ -1960,8 +1937,6 @@ header {
       <button id="admin-toggle-btn" class="admin-toggle-btn" onclick="toggleAdminMode()" style="display:none">
         <span>🛠</span><span id="admin-toggle-label">管理者</span>
       </button>
-      <!-- 通知ベル -->
-      <button class="bell-btn" aria-label="通知">🔔<span class="bell-dot"></span></button>
       <!-- ユーザーアバター（タップでユーザーメニュー） -->
       <button id="avatar-btn" class="avatar" style="border:none;cursor:pointer;position:relative" onclick="toggleUserMenu()">
         <span id="avatar-text">南</span>
@@ -1989,7 +1964,7 @@ header {
         <span class="um-icon">🔔</span>
         <div style="flex:1">
           <div style="font-weight:700">通知設定</div>
-          <div style="font-size:11px;color:var(--text-muted);margin-top:1px">プッシュ通知 · メール</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:1px">プッシュ通知</div>
         </div>
         <span style="font-size:12px;color:var(--text-muted)">›</span>
       </button>
@@ -2431,7 +2406,7 @@ header {
     <div class="nav-inner">
       <button class="nav-item active" data-tab="announcements" onclick="switchTab('announcements',this)">
         <span class="nav-indicator"></span>
-        <span class="nav-icon">📢<span class="nav-badge">2</span></span>
+        <span class="nav-icon">📢</span>
         <span class="nav-label">周知</span>
       </button>
       <button class="nav-item" data-tab="chat" onclick="switchTab('chat',this)">
@@ -2474,7 +2449,7 @@ header {
 // ヘッダーバッジ・ユーザーメニュー・アプリ情報画面・利用状況計測(sessions.appVersion)は
 // すべてこの定数を参照する(#version-badge/#um-version-subtitleへは初期化処理でJSから反映、
 // アプリ情報画面・recordSession()は関数内で直接参照)
-const APP_VERSION = '0.3';
+const APP_VERSION = '0.3.1';
 
 /* ===== データ ===== */
 
@@ -2564,7 +2539,7 @@ const annCategories = [
 ];
 
 // お知らせ 初期表示用モックデータ(id は数値。実データ(Firestore, id=文字列)と混在表示し、
-// 編集・削除は不可の読み取り専用アセットとして維持する。既読・リアクション操作は
+// 編集・削除は不可の読み取り専用アセットとして維持する。既読操作は
 // 従来どおりローカル配列のmutateのみで完結し、Firestoreへは書き込まない)
 const MOCK_ANNOUNCEMENTS = [
   {
@@ -2586,7 +2561,6 @@ const MOCK_ANNOUNCEMENTS = [
     status:'published',
     readBy:['u02','u05','u07'],
     ackedBy:['u02','u05'],               // 「読みました」を押したユーザー
-    reactions:{ u02:'👍', u05:'⚠️', u07:'👍' },
     read:false,
   },
   {
@@ -2608,7 +2582,6 @@ const MOCK_ANNOUNCEMENTS = [
     status:'published',
     readBy:['u02','u03','u05','u06','u07'],
     ackedBy:[],
-    reactions:{ u02:'👍', u03:'👍', u06:'❓' },
     read:false,
   },
   {
@@ -2630,7 +2603,6 @@ const MOCK_ANNOUNCEMENTS = [
     status:'published',
     readBy:['u01','u02','u05','u07'],
     ackedBy:[],
-    reactions:{ u01:'👍', u02:'👍' },
     read:true,
   },
   {
@@ -2652,7 +2624,6 @@ const MOCK_ANNOUNCEMENTS = [
     status:'scheduled',
     readBy:[],
     ackedBy:[],
-    reactions:{},
     read:false,
   },
   {
@@ -2674,7 +2645,6 @@ const MOCK_ANNOUNCEMENTS = [
     status:'published',
     readBy:['u01','u02','u03','u04','u05','u06','u07','u08'],
     ackedBy:[],
-    reactions:{ u01:'👍', u03:'👍', u05:'👍' },
     read:true,
   },
   {
@@ -2696,7 +2666,6 @@ const MOCK_ANNOUNCEMENTS = [
     status:'published',
     readBy:['u01','u02','u03','u05','u06','u07'],
     ackedBy:[],
-    reactions:{ u01:'👍', u03:'👍' },
     read:true,
   },
 ];
@@ -2825,7 +2794,6 @@ const st = {
   role: 'driver',          // 'driver' | 'manager'
   currentUid: 'u01',       // 現在のユーザーID（既読記録用）
   annFilter: 'all',
-  annFeedback: {},
   annSearch: '',           // 検索キーワード
   annTagFilter: null,      // タグフィルタ（スレッド表示）
   readSectionOpen: false,  // 既読セクションの開閉
@@ -3485,6 +3453,7 @@ async function saveNotifPrefs() {
 
 // 更新履歴。git履歴・HANDOFF.md・TECH_DEBT.mdから裏の取れる範囲で記録する(過去分を遡って捏造しない)
 const CHANGELOG = [
+  { version: '0.3.1', items: ['iOS PWA standalone表示のタブバー下白帯を修正', '周知の「反応」機能(未接続)を削除', '通知ベル・固定バッジ等の未実装表示を撤去'] },
   { version: '0.3', items: ['プッシュ通知(FCM)を追加', '通知設定を実データ化', '旧通知機構(アプリ起動中のみ)を廃止'] },
   { version: '0.2.2〜0.2.3', items: ['PWA standalone表示の不具合修正(ボトムナビ固定・スクロール)'] },
   { version: '0.2.1', items: ['利用状況計測(DAU/WAU/MAU)を実装'] },
@@ -4080,8 +4049,6 @@ function renderAnnDetailBody(id) {
     );
   }
 
-  const reactions = ['👍 了解','❓ 質問あり','⚠️ 問題あり'];
-  const fb = st.annFeedback[id];
   const acked = isMock ? a.ackedBy.includes(st.currentUid) : !!(fbUser && annCurrentReads[fbUser.code] && annCurrentReads[fbUser.code].acked);
 
   // 必読確認バナー
@@ -4169,34 +4136,22 @@ function renderAnnDetailBody(id) {
           ${isMock ? '' : `<button class="btn btn-ghost" style="flex:1" onclick="openAnnEditor('${id}')">✏️ 編集</button>`}
         </div>
       ` : `
-        <div class="divider"></div>
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
-          <span style="font-size:13px;color:var(--text-sub)">この通知への反応</span>
-          ${isMock ? `<span style="font-size:13px;font-weight:700;color:var(--navy)">📊 ${reach.pct}%（${reach.readCount}/${reach.total}名既読）</span>` : ''}
-        </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
-          ${reactions.map(r=>`
-            <button class="btn btn-ghost" style="flex:1 1 auto;font-size:12px;${fb===r?'background:rgba(26,86,196,.08);color:var(--primary);border-color:var(--primary)':''}"
-              onclick="setAnnFb('${id}','${r}')">
-              ${r}
-            </button>`).join('')}
-        </div>
-        ${fb ? `<div style="margin-bottom:10px;color:var(--safe);font-size:13px;font-weight:700">✓ フィードバックを送信しました</div>` : ''}
         ${isMock ? `
+        <div class="divider"></div>
+        <div style="display:flex;align-items:center;justify-content:flex-end;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+          <span style="font-size:13px;font-weight:700;color:var(--navy)">📊 ${reach.pct}%（${reach.readCount}/${reach.total}名既読）</span>
+        </div>
         ${readUsers.length > 0 ? `
           <div class="user-list-wrap" style="margin-bottom:8px">
             <div class="user-list-header"><span>✓ 既読（${readUsers.length}名）</span></div>
-            ${readUsers.map(u => {
-              const reaction = a.reactions[u.id];
-              return `<div class="user-row">
+            ${readUsers.map(u => `<div class="user-row">
                 <div class="msg-av" style="background:linear-gradient(135deg,#0D3D9E,#3F8CEF)">${(u.name||'?')[0]}</div>
                 <div class="user-info">
-                  <div class="user-name">${escHtml(u.name)}${reaction?`<span class="reaction-pill">${reaction}</span>`:''}</div>
+                  <div class="user-name">${escHtml(u.name)}</div>
                   <div class="user-meta">${escHtml(getTeamLabel(u.team))}</div>
                 </div>
                 <span class="user-status read">既読</span>
-              </div>`;
-            }).join('')}
+              </div>`).join('')}
           </div>
         ` : ''}
         ${unreadUsers.length > 0 ? `
@@ -4288,14 +4243,6 @@ function closeAnnDetail() {
 
 // 旧API互換のためエイリアス
 function backAnn() { closeAnnDetail(); }
-
-function setAnnFb(id, type) {
-  st.annFeedback[id] = type;
-  // リアクションはスコープ外(凍結資産)のためローカルのみ記録。st.currentUidのまま(未接続)
-  const a = findAnn(id);
-  if (a) a.reactions[st.currentUid] = type.split(' ')[0];
-  showAnn(id);
-}
 
 /* ===== 周知：管理者UI（投稿作成・編集） ===== */
 
@@ -4914,18 +4861,15 @@ async function showReachPublic(id) {
             <div class="user-list-header">
               <span>✓ 既読のメンバー（${readUsers.length}名）</span>
             </div>
-            ${readUsers.map(u => {
-              const reaction = a.reactions[u.id];
-              return `
+            ${readUsers.map(u => `
               <div class="user-row">
                 <div class="msg-av" style="background:linear-gradient(135deg,#0D3D9E,#3F8CEF)">${(u.name||'?')[0]}</div>
                 <div class="user-info">
-                  <div class="user-name">${escHtml(u.name)}${reaction?`<span class="reaction-pill">${reaction}</span>`:''}</div>
+                  <div class="user-name">${escHtml(u.name)}</div>
                   <div class="user-meta">${escHtml(getTeamLabel(u.team))} · ${escHtml(u.driverNo)}</div>
                 </div>
                 <span class="user-status read">既読</span>
-              </div>`;
-            }).join('')}
+              </div>`).join('')}
           </div>
         ` : ''}
 
@@ -4957,12 +4901,6 @@ async function showReach(id) {
   const isMock = typeof a.id === 'number';
   const status = isMock ? getAnnReadStatusMock(a) : await fetchAnnReadStatus(a.id);
   const { reach, readUsers, unreadUsers, ackedCount } = status;
-
-  // リアクション集計
-  const reactionCounts = { '👍':0, '❓':0, '⚠️':0 };
-  Object.values(a.reactions).forEach(r => {
-    if (reactionCounts[r] !== undefined) reactionCounts[r]++;
-  });
 
   // ドーナツチャート用
   const r = 42, c = 2 * Math.PI * r;
@@ -5011,7 +4949,7 @@ async function showReach(id) {
       </div>
     </div>
 
-    <div class="reach-stats">
+    <div class="reach-stats" style="grid-template-columns:repeat(2,1fr)">
       <div class="reach-stat-card">
         <div class="reach-stat-num" style="color:var(--safe)">${reach.readCount}</div>
         <div class="reach-stat-lbl">既読</div>
@@ -5020,34 +4958,7 @@ async function showReach(id) {
         <div class="reach-stat-num" style="color:var(--danger)">${unreadUsers.length}</div>
         <div class="reach-stat-lbl">未読</div>
       </div>
-      <div class="reach-stat-card">
-        <div class="reach-stat-num" style="color:var(--primary)">${Object.keys(a.reactions).length}</div>
-        <div class="reach-stat-lbl">反応</div>
-      </div>
     </div>
-
-    ${Object.values(reactionCounts).some(n=>n>0) ? `
-      <div class="card" style="padding:14px;margin-bottom:12px">
-        <div style="font-size:12px;font-weight:700;color:var(--text-sub);margin-bottom:10px;letter-spacing:.04em">📊 リアクション内訳</div>
-        <div style="display:flex;gap:10px;flex-wrap:wrap">
-          <div style="display:flex;align-items:center;gap:6px">
-            <span style="font-size:20px">👍</span>
-            <span style="font-weight:700;color:var(--navy)">${reactionCounts['👍']}</span>
-            <span style="font-size:11px;color:var(--text-sub)">了解</span>
-          </div>
-          <div style="display:flex;align-items:center;gap:6px">
-            <span style="font-size:20px">❓</span>
-            <span style="font-weight:700;color:var(--navy)">${reactionCounts['❓']}</span>
-            <span style="font-size:11px;color:var(--text-sub)">質問</span>
-          </div>
-          <div style="display:flex;align-items:center;gap:6px">
-            <span style="font-size:20px">⚠️</span>
-            <span style="font-weight:700;color:var(--navy)">${reactionCounts['⚠️']}</span>
-            <span style="font-size:11px;color:var(--text-sub)">問題</span>
-          </div>
-        </div>
-      </div>
-    ` : ''}
 
     ${unreadUsers.length > 0 ? `
       <div class="user-list-wrap">
@@ -5074,18 +4985,15 @@ async function showReach(id) {
         <div class="user-list-header">
           <span>✓ 既読のメンバー（${readUsers.length}名）</span>
         </div>
-        ${readUsers.map(u => {
-          const reaction = a.reactions[u.id];
-          return `
+        ${readUsers.map(u => `
           <div class="user-row">
             <div class="msg-av" style="background:linear-gradient(135deg,#0D3D9E,#3F8CEF)">${(u.name||'?')[0]}</div>
             <div class="user-info">
-              <div class="user-name">${escHtml(u.name)}${reaction?`<span class="reaction-pill">${reaction}</span>`:''}</div>
+              <div class="user-name">${escHtml(u.name)}</div>
               <div class="user-meta">${escHtml(getTeamLabel(u.team))} · ${escHtml(u.driverNo)}</div>
             </div>
             <span class="user-status read">既読</span>
-          </div>`;
-        }).join('')}
+          </div>`).join('')}
       </div>
     ` : ''}
 
@@ -5140,7 +5048,7 @@ async function runSendUnreadReminder(targetType, targetId) {
 
 /* ===== CSV エクスポート ===== */
 
-// 個別お知らせのCSVを出力（既読/未読・リアクション含む）
+// 個別お知らせのCSVを出力（既読/未読含む）
 async function exportAnnCsv(id) {
   const a = findAnn(id);
   if (!a) return;
@@ -5171,17 +5079,15 @@ async function exportAnnCsv(id) {
     ['出力日時',         new Date().toLocaleString('ja-JP')],
   ];
 
-  // 明細部（ユーザー別の既読・必読確認・リアクション）
-  const detailHeader = ['ドライバー番号', '氏名', 'チーム', '既読状態', '必読確認', 'リアクション'];
+  // 明細部（ユーザー別の既読・必読確認）
+  const detailHeader = ['ドライバー番号', '氏名', 'チーム', '既読状態', '必読確認'];
   const detailRows = targets.map(u => {
     const isRead = readCodes.has(u.id);
     const isAcked = !!ackedInfo.get(u.id);
-    const reaction = a.reactions[u.id] || '';
     return [
       u.driverNo || u.id, u.name, isMock ? u.team : getTeamLabel(u.team),
       isRead ? '既読' : '未読',
       a.mustRead ? (isAcked ? '確認済' : '未確認') : '—',
-      reaction,
     ];
   });
 
@@ -5535,7 +5441,7 @@ function attachAnnouncementsListener() {
     .onSnapshot(snap => {
       const real = snap.docs.map(d => {
         const data = d.data();
-        return { id: d.id, ...data, from: data.authorName || '管理者', reactions: {} };
+        return { id: d.id, ...data, from: data.authorName || '管理者' };
       });
       announcements = [...real, ...MOCK_ANNOUNCEMENTS];
 
