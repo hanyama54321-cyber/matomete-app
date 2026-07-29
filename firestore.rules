@@ -80,6 +80,12 @@ service cloud.firestore {
       match /tokens/{tokenId} {
         allow read, write: if isSignedIn() && myCode() == code;
       }
+
+      // v0.4 バッジ集約ドキュメント(state/badges)。通知センターと各タブの新着マークが
+      // 参照する最終閲覧時刻を保持する。本人のみ読み書き可(adminも他人の分は触れない)
+      match /state/{docId} {
+        allow read, write: if isSignedIn() && myCode() == code;
+      }
     }
 
     // アプリ全体設定。現状は config/notifications ({openToAllUsers:bool}) のみ使用。
@@ -206,12 +212,20 @@ service cloud.firestore {
       //         (public化された後は本人操作不可＝取り下げ不可、admin操作のみ)
       // 匿名報告(submitterUid==null)は、そもそもresource.data.submitterUid==myCode()が
       // 成立しないため、投稿者本人であってもvisibilityを後から変更できない(仕様として許容)。
+      // v0.4: replyReadAt(回答を開いた時刻)は投稿者本人のみ単独更新可。
+      //   hasOnly(['replyReadAt'])により、既読記録に便乗して他フィールド
+      //   (status/visibility/replyToReporter等)を書き換えることはできない。
+      //   匿名報告はsubmitterUidがnullでmyCode()と一致しないため、そもそも書き込めない。
+      //   replyUpdatedAt(回答の保存時刻)はadminのみ = 下のisAdmin()分岐でのみ通る。
       allow update: if isAdmin()
         || (isSignedIn()
             && resource.data.submitterUid == myCode()
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['visibility'])
             && resource.data.visibility != 'public'
-            && request.resource.data.visibility in ['private', 'pending_public']);
+            && request.resource.data.visibility in ['private', 'pending_public'])
+        || (isSignedIn()
+            && resource.data.submitterUid == myCode()
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['replyReadAt']));
 
       allow delete: if isAdmin();
 

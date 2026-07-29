@@ -342,6 +342,86 @@ test('カウンタの新規作成でcount!=1は拒否される', async () => {
   await assertFails(db.collection('counters').doc('reports').set({ count: 2 }));
 });
 
+/* ===== v0.4 replyReadAt / replyUpdatedAt (回答の双方向既読) ===== */
+
+test('投稿者本人はreplyReadAtを単独更新できる', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'D12').firestore();
+  await assertSucceeds(
+    db.collection('reports').doc('rep_named').update({ replyReadAt: new Date() })
+  );
+});
+
+test('投稿者本人でもreplyReadAtと他フィールドを同時更新できない', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'D12').firestore();
+  await assertFails(
+    db.collection('reports').doc('rep_named').update({ replyReadAt: new Date(), status: 'resolved' })
+  );
+});
+
+test('投稿者本人でもreplyReadAtに便乗してreplyToReporterを書き換えられない', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'D12').firestore();
+  await assertFails(
+    db.collection('reports').doc('rep_named').update({ replyReadAt: new Date(), replyToReporter: '改ざん' })
+  );
+});
+
+test('他人の報告のreplyReadAtは更新できない', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'D99').firestore();
+  await assertFails(
+    db.collection('reports').doc('rep_named').update({ replyReadAt: new Date() })
+  );
+});
+
+// 匿名報告はsubmitterUidがnullでmyCode()と一致しないため、投稿者本人であっても書けない
+test('匿名報告にはreplyReadAtを書き込めない', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'D12').firestore();
+  await assertFails(
+    db.collection('reports').doc('rep_anon').update({ replyReadAt: new Date() })
+  );
+});
+
+test('未認証ユーザーはreplyReadAtを更新できない', async () => {
+  await seed();
+  const db = testEnv.unauthenticatedContext().firestore();
+  await assertFails(
+    db.collection('reports').doc('rep_named').update({ replyReadAt: new Date() })
+  );
+});
+
+test('投稿者本人はreplyUpdatedAtを更新できない(管理者のみ)', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'D12').firestore();
+  await assertFails(
+    db.collection('reports').doc('rep_named').update({ replyUpdatedAt: new Date() })
+  );
+});
+
+test('adminはreplyUpdatedAtを更新できる(回答の保存)', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'ADM1').firestore();
+  await assertSucceeds(
+    db.collection('reports').doc('rep_named').update({
+      replyToReporter: '対応しました',
+      replyUpdatedAt: new Date(),
+    })
+  );
+});
+
+test('adminは匿名報告にもreplyUpdatedAtを更新できる(回答自体は書けるため)', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'ADM1').firestore();
+  await assertSucceeds(
+    db.collection('reports').doc('rep_anon').update({
+      replyToReporter: '対応しました', replyUpdatedAt: new Date(),
+    })
+  );
+});
+
 /* ===== reports/{id}/private/* (匿名トピック・回答通知の冪等管理。Admin SDK専用) ===== */
 
 test('投稿者本人でもprivate/notifyをreadできない', async () => {

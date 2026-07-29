@@ -136,6 +136,49 @@ header {
 .logo-title { font-weight: 700; font-size: 13px; color: var(--navy); line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .logo-sub { font-size: 8px; letter-spacing: .16em; color: var(--primary); font-weight: 700; white-space: nowrap; }
 .header-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+/* 通知センターのベル(v0.4でv0.3.1以前の実装を復活)。
+   バッジは件数を出さず赤い点のみ。点の有無=形で判別でき、色だけに依存しない */
+.bell-btn {
+  position: relative;
+  width: 34px; height: 34px;
+  border-radius: 50%;
+  background: var(--surface2);
+  border: none;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px;
+}
+.bell-dot {
+  position: absolute;
+  top: 2px; right: 2px;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--danger);
+  border: 1.5px solid white;
+}
+/* 通知センターの行(v0.4)。専用クラスのみで構成し、既存の共有クラスは使わない */
+.notif-row {
+  width: 100%;
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 4px;
+  background: none; border: none;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  font-family: inherit;
+}
+.notif-row:active { background: var(--surface2); }
+.notif-icon { font-size: 20px; flex-shrink: 0; }
+.notif-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.notif-title {
+  font-size: 14px; font-weight: 600; color: var(--navy);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.notif-time { font-size: 11px; color: var(--text-muted); }
+.notif-mustread {
+  flex-shrink: 0;
+  background: var(--danger); color: white;
+  font-size: 10px; font-weight: 700;
+  border-radius: 4px; padding: 2px 6px;
+}
 .avatar {
   width: 34px; height: 34px;
   border-radius: 50%;
@@ -200,17 +243,29 @@ header {
 .nav-icon { font-size: 20px; position: relative; line-height: 1; }
 .nav-label { font-size: 11px; font-weight: 500; }
 .nav-item.active .nav-label { font-weight: 700; }
+/* タブの新着マーク(v0.4)。件数は出さずドットのみ。
+   ドットの有無=形の違いで判別でき、色だけに依存しない。
+   ※このクラスはボトムナビのアイコン内でのみ使用している */
 .nav-badge {
   position: absolute;
-  top: -4px; right: -10px;
+  top: -3px; right: -7px;
+  width: 9px; height: 9px;
+  border-radius: 50%;
   background: var(--danger);
-  color: white;
-  font-size: 10px; font-weight: 700;
-  border-radius: 8px;
-  min-width: 15px; height: 15px;
-  line-height: 15px;
-  text-align: center;
-  padding: 0 4px;
+  border: 1.5px solid var(--surface);
+}
+/* チャンネルチップの新着表示(v0.4)。色( danger 系 )に加えて
+   先頭の●と太字を併用し、色だけに頼らず判別できるようにする */
+.chip-unread {
+  border-color: var(--danger);
+  color: var(--danger);
+  font-weight: 700;
+}
+.chip-unread::before {
+  content: '●';
+  font-size: 8px;
+  margin-right: 4px;
+  vertical-align: middle;
 }
 
 /* ===== タブパネル ===== */
@@ -672,6 +727,20 @@ header {
   cursor: pointer;
 }
 .report-card:active { transform: scale(.99); }
+/* v0.4 新着報告のハイライト。左の帯(形)とNEWバッジ(文字)を併用し、
+   色だけに頼らず判別できるようにしている。既存の.report-cardには手を入れていない */
+.report-card-new {
+  border-left: 3px solid var(--danger);
+  background: linear-gradient(to right, rgba(217,58,63,.05), var(--surface) 30%);
+}
+.report-new-badge {
+  background: var(--danger);
+  color: white;
+  font-size: 10px; font-weight: 700;
+  border-radius: 4px;
+  padding: 1px 5px;
+  letter-spacing: .04em;
+}
 .report-card-header {
   display: flex;
   align-items: center;
@@ -1998,6 +2067,11 @@ header {
       <button id="admin-toggle-btn" class="admin-toggle-btn" onclick="toggleAdminMode()" style="display:none">
         <span>🛠</span><span id="admin-toggle-label">管理者</span>
       </button>
+      <!-- 通知センター(v0.4)。点は「通知センターに出る項目が1件以上」のときのみ表示。
+           チャットは通知センターに載せないため、チャットの新着では点灯しない -->
+      <button id="bell-btn" class="bell-btn" aria-label="通知" onclick="openNotificationCenter()">
+        🔔<span id="bell-dot" class="bell-dot" style="display:none"></span>
+      </button>
       <!-- ユーザーアバター（タップでユーザーメニュー） -->
       <button id="avatar-btn" class="avatar" style="border:none;cursor:pointer;position:relative" onclick="toggleUserMenu()">
         <span id="avatar-text">南</span>
@@ -2514,7 +2588,7 @@ header {
 // ヘッダーバッジ・ユーザーメニュー・アプリ情報画面・利用状況計測(sessions.appVersion)は
 // すべてこの定数を参照する(#version-badge/#um-version-subtitleへは初期化処理でJSから反映、
 // アプリ情報画面・recordSession()は関数内で直接参照)
-const APP_VERSION = '0.3.2';
+const APP_VERSION = '0.4';
 
 /* ===== データ ===== */
 
@@ -3052,6 +3126,547 @@ async function recordSession() {
   }
 }
 
+/* ===== v0.4 バッジ集約ドキュメント(users/{code}/state/badges) =====
+   通知センターと各タブの新着マークが参照する唯一の情報源。
+   周知・手順書は既存のreadsサブコレクション(項目単位)、報告(管理者)・KYT・チャットは
+   ここに持つ最終閲覧時刻(時刻方式)で未読を判定する。
+   通知センター専用の既読フラグは作らない(タブ内で表示がズレるため)。 */
+
+// バッジ基準時刻。この時刻より前に作られた項目は既読扱いとする(移行処理用)。
+// リリース直後に全乗務員へ過去分の新着が一斉に湧くのを防ぐための足切り。
+//
+// v0.4のリリース時刻に更新済み(2026-07-30 03:30 JST / mainマージ作業の開始時点)。
+// 次にこの仕組みを載せた大きなリリースを行う場合も、リリース直前に同様の更新が必要かを
+// 検討すること(既にバッジ集約ドキュメントを持つユーザーには影響しない。この定数は
+// state/badgesが未作成のユーザーを初期化するときの足切り値としてのみ使われる)。
+const BADGE_EPOCH = new Date('2026-07-30T03:30:00+09:00');
+
+// チャンネル別の最終閲覧時刻を持つ対象。'general'/'safety' + 9班(team_a〜team_i)
+const BADGE_CHANNEL_IDS = [
+  'general', 'safety',
+  'team_a', 'team_b', 'team_c', 'team_d', 'team_e', 'team_f', 'team_g', 'team_h', 'team_i',
+];
+
+let badgeState = null;        // users/{code}/state/badges のミラー
+let badgeStateUnsub = null;
+let badgeSeenLocal = {};      // 書き込み確定前のローカル先行反映(UIが即座に消えるように)
+let badgePendingPatch = {};   // デバウンス中の未送信パッチ
+let badgeFlushTimer = null;
+let badgeLastFlushAt = 0;
+const BADGE_FLUSH_INTERVAL_MS = 5000; // 集約ドキュメントへの書き込みは5秒に1回を上限とする
+
+// 任意の時刻表現(Firestore Timestamp / Date / 文字列)をDateへ正規化する。
+// 解釈できないものはnullを返す
+function toDateOrNull(v) {
+  if (!v) return null;
+  const d = (typeof v.toDate === 'function') ? v.toDate() : new Date(v);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+// 移行処理の基準時刻を決める。登録時刻とBADGE_EPOCHの新しい方を返す。
+// 副作用が無く単体で検証できるよう純関数として切り出している。
+//
+// 登録時刻は3段フォールバック:
+//   1. users.createdAt          … v0.4以降に作成された乗務員(最も正確)
+//   2. Auth の metadata.creationTime … createdAt導入前に作られた乗務員の救済。
+//      Firebase Authのアカウントには最初からこの値が入っているため、
+//      v0.4リリースまでの間に追加された乗務員の穴を塞げる
+//   3. どちらも無い              … BADGE_EPOCHが採用される(既存乗務員はこれが正しい挙動)
+function computeBadgeBaseDate(userCreatedAt, authCreationTime) {
+  const reg = toDateOrNull(userCreatedAt) || toDateOrNull(authCreationTime);
+  return (reg && reg > BADGE_EPOCH) ? reg : BADGE_EPOCH;
+}
+
+// 集約ドキュメントの初期値を組み立てる(純関数。値はDateで返し、書き込み側でTimestampへ変換)
+function buildInitialBadgeState(userCreatedAt, authCreationTime) {
+  const base = computeBadgeBaseDate(userCreatedAt, authCreationTime);
+  const chat = {};
+  BADGE_CHANNEL_IDS.forEach(id => { chat[id] = base; });
+  return { since: base, reportsSeenAt: base, kytSeenAt: base, chat };
+}
+
+// ログイン時に1回呼ぶ。未作成なら移行処理で初期化し、以後はonSnapshotでミラーする
+async function initBadgeState() {
+  if (!fbUser) return;
+  const ref = fbDb.collection('users').doc(fbUser.code).collection('state').doc('badges');
+  try {
+    const snap = await ref.get();
+    if (!snap.exists) {
+      // 初回のみ: リリース前の項目を既読扱いにする足切り値で初期化する
+      const authCreationTime = (fbAuth.currentUser && fbAuth.currentUser.metadata)
+        ? fbAuth.currentUser.metadata.creationTime : null;
+      const init = buildInitialBadgeState(fbUser.createdAt, authCreationTime);
+      const ts = (d) => firebase.firestore.Timestamp.fromDate(d);
+      const chat = {};
+      Object.keys(init.chat).forEach(id => { chat[id] = ts(init.chat[id]); });
+      await ref.set({
+        since: ts(init.since),
+        reportsSeenAt: ts(init.reportsSeenAt),
+        kytSeenAt: ts(init.kytSeenAt),
+        chat,
+      });
+    }
+    attachBadgeStateListener(ref);
+  } catch (e) {
+    console.error('バッジ状態の初期化エラー:', e);
+  }
+}
+
+function attachBadgeStateListener(ref) {
+  if (badgeStateUnsub) { badgeStateUnsub(); badgeStateUnsub = null; }
+  badgeStateUnsub = ref.onSnapshot(snap => {
+    badgeState = snap.exists ? snap.data() : null;
+    // サーバー確定値が届いたフィールドは、ローカル先行値(端末時計のnew Date())を破棄し、
+    // 以後の未読判定をサーバー時刻だけで行う。これが無いとローカル値が
+    // セッション中ずっと優先され続け、端末時計のズレがドットの点灯・消灯に影響する
+    // (時計が遅れている端末では既読にしたドットが消えない、進んでいる端末では
+    //  新着が点灯しない、という形で表面化する)
+    if (badgeState && !snap.metadata.hasPendingWrites) {
+      Object.keys(badgeSeenLocal).forEach(field => {
+        if (badgePendingPatch[field]) return;              // まだ書き込み待ちなら保持する
+        if (getBadgeServerSeenAt(field)) delete badgeSeenLocal[field];
+      });
+    }
+    refreshTabBadges();   // v0.4 他端末での既読も新着マークに反映する
+  }, err => {
+    console.error('バッジ状態リスナーエラー:', err);
+  });
+}
+
+// 最終閲覧時刻の読み出し。書き込み確定前のローカル先行値があればそちらを優先する
+// (serverTimestamp()はサーバー確定までローカルスナップショットでnullになるため)
+// サーバー確定値のみを読む(ローカル先行値は見ない)
+function getBadgeServerSeenAt(field) {
+  if (!badgeState) return null;
+  if (field.startsWith('chat.')) {
+    const id = field.slice(5);
+    return (badgeState.chat && badgeState.chat[id]) ? toDateOrNull(badgeState.chat[id]) : null;
+  }
+  return badgeState[field] ? toDateOrNull(badgeState[field]) : null;
+}
+
+function getBadgeSeenAt(field) {
+  if (badgeSeenLocal[field]) return badgeSeenLocal[field];
+  return getBadgeServerSeenAt(field);
+}
+
+// 「このタブ/チャンネルを見た」を記録する。fieldは 'reportsSeenAt' | 'kytSeenAt' | 'chat.<id>'
+// 実際の書き込みはデバウンスし、5秒に1回を上限とする(タブ離脱時は即時フラッシュ)
+function markBadgeSeen(field) {
+  if (!fbUser) return;
+  badgeSeenLocal[field] = new Date();            // UIは即座に既読化する
+  badgePendingPatch[field] = firebase.firestore.FieldValue.serverTimestamp();
+  scheduleBadgeFlush();
+}
+
+function scheduleBadgeFlush() {
+  if (badgeFlushTimer) return;
+  const wait = Math.max(0, BADGE_FLUSH_INTERVAL_MS - (Date.now() - badgeLastFlushAt));
+  badgeFlushTimer = setTimeout(() => {
+    badgeFlushTimer = null;
+    flushBadgeSeen();
+  }, wait);
+}
+
+function flushBadgeSeen() {
+  if (!fbUser) return;
+  const patch = badgePendingPatch;
+  badgePendingPatch = {};
+  const keys = Object.keys(patch);
+  if (keys.length === 0) return;
+  badgeLastFlushAt = Date.now();
+  if (badgeFlushTimer) { clearTimeout(badgeFlushTimer); badgeFlushTimer = null; }
+  // 'chat.<id>' はネストしたマップへ組み直してから書き込む。
+  // set(..., {merge:true}) はドット付きキーをネストパスとして解釈せず、ドットを含む
+  // リテラルなフィールド名として扱うため、そのまま渡すと読み出し側(badgeState.chat[id])と
+  // 噛み合わず既読が永久に反映されない。merge:trueはマップを深くマージするため、
+  // このネスト形式なら他チャンネルの値を壊さずに1チャンネルだけ更新できる
+  const payload = {};
+  keys.forEach(k => {
+    if (k.startsWith('chat.')) {
+      payload.chat = payload.chat || {};
+      payload.chat[k.slice(5)] = patch[k];
+    } else {
+      payload[k] = patch[k];
+    }
+  });
+  // 複数端末の競合は最後勝ちでよい(仕様)。ドット表示の基準時刻のみのため実害がない
+  fbDb.collection('users').doc(fbUser.code).collection('state').doc('badges')
+    .set(payload, { merge: true })
+    .catch(e => console.error('バッジ状態の保存エラー:', e));
+}
+
+// タブ離脱・アプリ終了時は溜まっているぶんを取りこぼさずに書き出す
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') flushBadgeSeen();
+});
+window.addEventListener('pagehide', flushBadgeSeen);
+
+/* ===== v0.4 各タブの未読判定 =====
+   中核原則: タブごとに、通知センターとタブの新着マークが同じ情報源を見る。
+   既読レコードがあるタブ(周知・手順書)は項目単位、無いタブ(報告の管理者側・KYT・
+   チャット)は最終閲覧時刻との比較。通知センター専用の既読フラグは作らない。 */
+
+// チャンネル一覧のミラー。lastMessage.createdAt だけを見るため、
+// メッセージ本体(messagesサブコレクション)は読まない
+let chatChannelsMeta = {};   // { [channelId]: { lastMessageAt: Date|null } }
+let chatChannelsUnsub = null;
+
+// 報告タブを開く直前のreportsSeenAt。タブ内の新着行ハイライト判定にだけ使う
+// (reportsSeenAt自体は開いた時点で更新してしまうため、判定用に退避しておく)
+let reportsHighlightSince = null;
+
+function attachChatChannelsListener() {
+  if (chatChannelsUnsub) { chatChannelsUnsub(); chatChannelsUnsub = null; }
+  chatChannelsUnsub = fbDb.collection('channels').onSnapshot(snap => {
+    const next = {};
+    snap.forEach(d => {
+      const lm = d.data().lastMessage;
+      next[d.id] = { lastMessageAt: lm ? toDateOrNull(lm.createdAt) : null };
+    });
+    chatChannelsMeta = next;
+    refreshTabBadges();
+  }, err => {
+    console.error('チャンネル一覧リスナーエラー:', err);
+  });
+}
+
+// 自分の手順書既読状況の一括キャッシュ(fetchMyAnnAcksと同型。件数分の直接doc get)
+let myManualReads = {};
+async function fetchMyManualReads() {
+  if (!fbUser) return;
+  const results = await Promise.all(manuals.map(m =>
+    fbDb.collection('manuals').doc(m.id).collection('reads').doc(fbUser.code).get()
+      .then(doc => [m.id, doc.exists ? doc.data() : null])
+      .catch(() => [m.id, null])
+  ));
+  myManualReads = {};
+  results.forEach(([id, data]) => { if (data) myManualReads[id] = data; });
+  refreshTabBadges();
+}
+
+// since より後に作られた項目だけを新着候補とする(移行処理の足切り)
+function isAfterBadgeSince(createdAt) {
+  const d = toDateOrNull(createdAt);
+  if (!d) return false;                       // serverTimestamp確定前などは新着扱いしない
+  const since = badgeState ? toDateOrNull(badgeState.since) : null;
+  return since ? d > since : false;           // badgeState未取得のうちは点灯させない
+}
+
+// 周知: 公開済みかつ reads/{code} が無く、since より後のもの(既存readsをそのまま使う)
+function unreadAnnouncements() {
+  if (!fbUser) return [];
+  return announcements.filter(a =>
+    typeof a.id !== 'number' &&               // モックは対象外(凍結資産)
+    a.status === 'published' &&
+    !myAnnAcks[a.id] &&
+    isAfterBadgeSince(a.createdAt)
+  );
+}
+
+// 手順書: reads/{code} が無く、since より後のもの(既存readsをそのまま使う)
+function unreadManuals() {
+  if (!fbUser) return [];
+  return manuals.filter(m => !myManualReads[m.id] && isAfterBadgeSince(m.createdAt));
+}
+
+// KYT: kytSeenAt より後に追加されたシナリオ。未完了シナリオは対象に含めない
+function unreadKytScenarios() {
+  const seen = getBadgeSeenAt('kytSeenAt');
+  if (!seen) return [];
+  return kytScenarios.filter(s => {
+    const d = toDateOrNull(s.createdAt);
+    return d && d > seen;
+  });
+}
+
+/* --- 報告への回答の未読(乗務員・管理者共通の項目単位判定) ---
+   自分が投稿した記名報告のミラー。バッジ・通知センターはタブを開く前から
+   判定できる必要があるため、報告ビューの表示状態に依存する既存の`reports`とは別に
+   ログイン時から常設で購読する(既存のattachMyReportsListenerは表示中のみ張られ、
+   かつグローバルの`reports`を上書きするため流用できない)。
+   匿名報告はsubmitterUidがnullのためこのクエリに載らず、構造的に対象外になる */
+let myReplyReports = [];
+let myReplyReportsUnsub = null;
+
+function attachMyReplyReportsListener() {
+  if (myReplyReportsUnsub) { myReplyReportsUnsub(); myReplyReportsUnsub = null; }
+  if (!fbUser) return;
+  // submitterUid + createdAt の複合インデックスは既存(firestore.indexes.json)
+  myReplyReportsUnsub = fbDb.collection('reports')
+    .where('submitterUid', '==', fbUser.code)
+    .orderBy('createdAt', 'desc')
+    .onSnapshot(snap => {
+      myReplyReports = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      refreshTabBadges();
+    }, err => {
+      console.error('自分の報告(回答未読判定用)リスナーエラー:', err);
+    });
+}
+
+// 回答が未読か。真偽フラグではなく replyUpdatedAt > replyReadAt の比較で判定する。
+// 管理者が回答を書き直すと replyUpdatedAt が進むため自動で未読へ戻り、
+// 訂正が投稿者に届かない事故を防げる。
+//
+// 移行(§6-3): replyUpdatedAt が無いものは既読扱い。このフィールドはv0.4で新設のため、
+// v0.4以前に作られた報告は必ず未設定であり、過去分が一斉に未読として湧くことはない。
+// (replyReadAt 単独の未設定を既読扱いにすると、新しく書かれた回答が永久に未読に
+//  ならず機能が成立しないため、判定は replyUpdatedAt の有無を起点にしている)
+function reportReplyIsUnread(r) {
+  if (!r) return false;
+  if (r.anonymous === true) return false;          // 匿名は投稿者を特定できないため対象外
+  const updated = toDateOrNull(r.replyUpdatedAt);
+  if (!updated) return false;                      // 回答なし / v0.4以前のデータ
+  const read = toDateOrNull(r.replyReadAt);
+  return read ? updated > read : true;             // 一度も開いていなければ未読
+}
+
+// 自分の記名報告のうち、回答が未読のもの(乗務員・管理者とも同じ判定を使う)
+function unreadReplyReports() {
+  if (!fbUser) return [];
+  return myReplyReports.filter(reportReplyIsUnread);
+}
+
+// 報告詳細を開いたときに呼ぶ。未読の回答があるときだけ replyReadAt を書き込む。
+// 通知センターからは呼ばない(遷移先のこの処理に既読化を委ねる設計)
+async function markReportReplyRead(id) {
+  if (!fbUser) return;
+  const r = myReplyReports.find(x => x.id === id) || reports.find(x => x.id === id);
+  if (!reportReplyIsUnread(r)) return;             // 未読でなければ書き込まない
+  try {
+    await fbDb.collection('reports').doc(id).update({
+      replyReadAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+  } catch (e) {
+    console.error('回答既読の記録エラー:', e);
+  }
+}
+
+// 報告(管理者): reportsSeenAt より後に作成された報告
+function unreadReportsForAdmin() {
+  if (!fbUser || fbUser.role !== 'admin') return [];
+  const seen = getBadgeSeenAt('reportsSeenAt');
+  if (!seen) return [];
+  return reports.filter(r => {
+    const d = toDateOrNull(r.createdAt);
+    return d && d > seen;
+  });
+}
+
+// チャット: lastMessage.createdAt > chat[id] のチャンネルID一覧。
+// 閲覧できるチャンネルのみを対象にする(他班は未読にしない)
+function unreadChatChannelIds() {
+  if (!fbUser) return [];
+  return Object.keys(chatChannelsMeta).filter(id => {
+    if (!canViewChannel(id)) return false;
+    const last = chatChannelsMeta[id].lastMessageAt;
+    if (!last) return false;
+    const seen = getBadgeSeenAt('chat.' + id);
+    return seen ? last > seen : false;
+  });
+}
+
+// 閲覧可否(firestore.rulesのchannelVisible()と同じ考え方: general/safetyは全員、
+// 班チャンネルは所属班のみ、adminは全チャンネル)
+function canViewChannel(id) {
+  if (!fbUser) return false;
+  if (id === 'general' || id === 'safety') return true;
+  if (fbUser.role === 'admin') return true;
+  return fbUser.team === id;
+}
+
+// タブごとの新着有無。ゲームタブは対象外
+function computeTabBadges() {
+  return {
+    announcements: unreadAnnouncements().length > 0,
+    chat: unreadChatChannelIds().length > 0,
+    manuals: unreadManuals().length > 0,
+    kyt: unreadKytScenarios().length > 0,
+    // 報告: 管理者の新規報告(時刻方式)と、自分の記名報告への回答(項目単位)のOR。
+    // 管理者も報告を投稿できるため、両方を見ないと自分宛の回答に気づけない
+    feedback: unreadReportsForAdmin().length > 0 || unreadReplyReports().length > 0,
+  };
+}
+
+// ボトムナビのドット表示を更新する。件数は出さず、有無だけをドットで示す
+function refreshTabBadges() {
+  const badges = computeTabBadges();
+  Object.keys(badges).forEach(tab => {
+    const btn = document.querySelector(`.nav-item[data-tab="${tab}"] .nav-icon`);
+    if (!btn) return;
+    const existing = btn.querySelector('.nav-badge');
+    if (badges[tab]) {
+      if (!existing) {
+        const dot = document.createElement('span');
+        dot.className = 'nav-badge';
+        dot.setAttribute('aria-label', '新着あり');
+        btn.appendChild(dot);
+      }
+    } else if (existing) {
+      existing.remove();
+    }
+  });
+  renderChannelChips();   // チャンネルチップ側の新着表示も同時に更新する
+  refreshBellDot();       // ベルの点も同じタイミングで更新する
+}
+
+/* ===== v0.4 通知センター =====
+   一覧は上の未読判定関数(unreadAnnouncements/unreadManuals/unreadKytScenarios/
+   unreadReportsForAdmin)をそのまま再利用して組み立てる。ここで独自のクエリや
+   判定を書くと、タブのドットと内容が必ずズレる(設計指示書 §2)。
+   通知センター自身は既読を一切書き込まない。行タップは遷移のみを行い、
+   既読化は遷移先の既存処理(周知・手順書=詳細を開いた時の自動登録、
+   KYT・報告=switchTab()のmarkBadgeSeen)に委ねる。 */
+
+const NOTIF_MAX_AGE_DAYS = 90;   // これより古い項目は表示しない(90日アーカイブと整合)
+
+function notifCutoffDate() {
+  return new Date(Date.now() - NOTIF_MAX_AGE_DAYS * 24 * 60 * 60 * 1000);
+}
+
+// 通知センターに出す行を組み立てる。新しい順。
+// チャットは載せない(仕様)。報告(乗務員側)は段階4で追加する
+function buildNotificationItems() {
+  if (!fbUser) return [];
+  const cutoff = notifCutoffDate();
+  const items = [];
+
+  // 周知: 1件につき1行。mustReadは本体に既にあるフィールドをそのまま読む
+  unreadAnnouncements().forEach(a => {
+    const at = toDateOrNull(a.createdAt);
+    if (!at || at < cutoff) return;
+    items.push({
+      icon: '📢', title: a.title || '(無題)', at,
+      mustRead: a.mustRead === true,
+      open: () => { goToTab('announcements'); showAnn(a.id); },
+    });
+  });
+
+  // 手順書: 1件につき1行
+  unreadManuals().forEach(m => {
+    const at = toDateOrNull(m.createdAt);
+    if (!at || at < cutoff) return;
+    items.push({
+      icon: '📋', title: m.title || '(無題)', at,
+      mustRead: false,
+      open: () => { goToTab('manuals'); showMan(m.id); },
+    });
+  });
+
+  // KYT: 新規シナリオ1件につき1行。1行タップでkytSeenAtが更新され他の行も消えるが、
+  // 同一タブ内で表示がズレるわけではないため仕様として許容している
+  unreadKytScenarios().forEach(s => {
+    const at = toDateOrNull(s.createdAt);
+    if (!at || at < cutoff) return;
+    items.push({
+      icon: '⚠️', title: '新しいシナリオが追加されました', at,
+      mustRead: false,
+      open: () => { goToTab('kyt'); },
+    });
+  });
+
+  // 報告への回答(乗務員・管理者共通): 報告1件につき1行。遷移先はその報告の詳細。
+  // 既読化(replyReadAt)は遷移先の詳細表示処理に委ね、ここでは書き込まない
+  unreadReplyReports().forEach(r => {
+    const at = toDateOrNull(r.replyUpdatedAt) || toDateOrNull(r.createdAt);
+    if (!at || at < cutoff) return;
+    items.push({
+      icon: '💬', title: `報告 ${r.displayId || ''} に回答がありました`.trim(), at,
+      mustRead: false,
+      open: () => { goToTab('feedback'); openOwnReportDetail(r.id); },
+    });
+  });
+
+  // 報告(管理者): 集約して1行。どれが新しいかは報告タブ側のハイライトで示す
+  const newReports = unreadReportsForAdmin().filter(r => {
+    const at = toDateOrNull(r.createdAt);
+    return at && at >= cutoff;
+  });
+  if (newReports.length > 0) {
+    const latest = newReports.reduce((acc, r) => {
+      const at = toDateOrNull(r.createdAt);
+      return (!acc || at > acc) ? at : acc;
+    }, null);
+    items.push({
+      icon: '✉️', title: `新しい報告が ${newReports.length} 件`, at: latest,
+      mustRead: false,
+      open: () => { goToTab('feedback'); },
+    });
+  }
+
+  return items.sort((a, b) => b.at - a.at);
+}
+
+// ボトムナビのボタンを介してタブを切り替える(switchTabはbtn要素を必要とするため)
+function goToTab(tabId) {
+  const btn = document.querySelector(`.nav-item[data-tab="${tabId}"]`);
+  if (btn) switchTab(tabId, btn);
+}
+
+// 自分が投稿した報告の詳細を開く。ロールによって画面が異なるため入口を分ける
+// (管理者は管理ビューのみ、乗務員は「自分の報告」ビューを経由する)
+function openOwnReportDetail(reportId) {
+  if (fbUser && fbUser.role === 'admin') {
+    showReport(reportId);
+    return;
+  }
+  const btn = document.querySelector('#fb-driver-nav .chip[data-view="mine"]');
+  switchFbDriverView('mine', btn);
+  // attachMyReportsListener()のスナップショット到着後でないと対象が見つからないため、
+  // 一覧の描画を待ってから詳細を開く
+  const openWhenReady = (tries = 0) => {
+    if (reports.some(x => x.id === reportId)) { showMyReportDetail(reportId); return; }
+    if (tries < 20) setTimeout(() => openWhenReady(tries + 1), 100);
+  };
+  openWhenReady();
+}
+
+// ベルの点灯 = 通知センターに表示される項目が1件以上。
+// チャットは通知センターに載せないため、チャットの新着では点灯しない
+function refreshBellDot() {
+  const dot = document.getElementById('bell-dot');
+  if (!dot) return;
+  dot.style.display = buildNotificationItems().length > 0 ? '' : 'none';
+}
+
+function openNotificationCenter() {
+  const items = buildNotificationItems();
+  notifOpenHandlers = items.map(i => i.open);   // onclickから参照するため添字で保持
+
+  const body = items.length === 0
+    ? `<div style="text-align:center;padding:28px 8px;color:var(--text-muted)">
+         <div style="font-size:34px;margin-bottom:10px">🔔</div>
+         <div style="font-size:14px">新しいお知らせはありません</div>
+       </div>`
+    : items.map((it, idx) => `
+        <button class="notif-row" onclick="openNotificationItem(${idx})">
+          <span class="notif-icon">${it.icon}</span>
+          <span class="notif-main">
+            <span class="notif-title">${escHtml(it.title)}</span>
+            <span class="notif-time">${escHtml(fmtRelativeTime({ toDate: () => it.at }))}</span>
+          </span>
+          ${it.mustRead ? '<span class="notif-mustread">必読</span>' : ''}
+        </button>`).join('');
+
+  openModal(`
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title">🔔 通知</div>
+        <button class="modal-close" onclick="closeModal()">✕</button>
+      </div>
+      <div class="modal-body">${body}</div>
+    </div>`);
+}
+
+let notifOpenHandlers = [];
+
+// 行タップ: 遷移して閉じるだけ。既読の書き込みは行わない(遷移先の既存処理に委ねる)
+function openNotificationItem(idx) {
+  const fn = notifOpenHandlers[idx];
+  closeModal();
+  if (fn) fn();
+}
+
 /* ===== FCMプッシュ通知: config/notifications ミラー(Stage0ゲート判定用) ===== */
 let notificationsConfig = null;
 let notificationsConfigUnsub = null;
@@ -3518,6 +4133,7 @@ async function saveNotifPrefs() {
 
 // 更新履歴。git履歴・HANDOFF.md・TECH_DEBT.mdから裏の取れる範囲で記録する(過去分を遡って捏造しない)
 const CHANGELOG = [
+  { version: '0.4', items: ['通知センターを追加(ヘッダーのベル)', '各タブに新着マークを追加', '報告の回答に既読を追加(投稿者・管理者の双方向)'] },
   { version: '0.3.2', items: ['iOS PWA standalone表示の白帯を解消(ステータスバー設定を変更)', '診断オーバーレイを追加(バージョン表記を3回タップ)'] },
   { version: '0.3.1', items: ['iOS PWA standalone表示のタブバー下白帯を修正', '周知の「反応」機能(未接続)を削除', '通知ベル・固定バッジ等の未実装表示を撤去'] },
   { version: '0.3', items: ['プッシュ通知(FCM)を追加', '通知設定を実データ化', '旧通知機構(アプリ起動中のみ)を廃止'] },
@@ -3690,12 +4306,24 @@ function switchTab(id, btn) {
   document.getElementById('tab-'+id).classList.add('active');
   btn.classList.add('active');
   document.getElementById('main').scrollTop = 0;
+
+  // v0.4 時刻方式のタブは、開いた時点で最終閲覧時刻を更新する。
+  // 報告(管理者)は更新前の値を保持しておき、タブ内の新着行ハイライトに使う
+  // (集約表示にすると「どれが新しいか」が分からなくなるため)
+  if (id === 'kyt') markBadgeSeen('kytSeenAt');
+  if (id === 'feedback' && fbUser && fbUser.role === 'admin') {
+    reportsHighlightSince = getBadgeSeenAt('reportsSeenAt');
+    markBadgeSeen('reportsSeenAt');
+  }
+  if (id === 'chat' && currentChannel) markBadgeSeen('chat.' + currentChannel);
+
   if (id === 'announcements') { renderAnn(); }
   if (id === 'chat')     { renderChatTab(); scrollChatBot(); }
   if (id === 'kyt')      { renderKytTab(); }
   if (id === 'manuals')  { renderManTab(); }
   if (id === 'feedback') { renderFbTab(); }
   if (id === 'game')     { renderGameTab(); }
+  refreshTabBadges();
   // 周知タブから他へ移動するときに詳細・到達率を閉じる
   if (id !== 'announcements') {
     const detail = document.getElementById('ann-detail');
@@ -5311,6 +5939,8 @@ async function sendMsg() {
         createdAt: firebase.firestore.FieldValue.serverTimestamp(),
       },
     });
+    // v0.4 自分の発言で自分のタブ・チップが光らないよう、送信時も既読にする
+    markBadgeSeen('chat.' + currentChannel);
     inp.value = '';
   } catch (e) {
     console.error('メッセージ送信エラー:', e);
@@ -5347,6 +5977,7 @@ function attachChannelListener(id) {
 function switchCh(id, name) {
   document.getElementById('ch-title').textContent = name;
   currentChannel = id;
+  markBadgeSeen('chat.' + id);   // v0.4 開いたチャンネルは既読にする
   chatMessages = [];
   renderChat();             // 前チャンネルの表示を即座にクリア
   attachChannelListener(id);
@@ -5380,10 +6011,13 @@ function renderChannelChips() {
     ...teams.filter(t => t.id !== 'all').map(t => ({ id:t.id, label:t.displayName })),
     { id:'safety', label:'安全報告' },
   ];
+  const unreadIds = new Set(unreadChatChannelIds());
   host.innerHTML = channelList.map(c => {
     const isOwn = fbUser && c.id === fbUser.team;
+    // 表示中のチャンネルは既読化される側なので新着表示しない
+    const isUnread = unreadIds.has(c.id) && c.id !== currentChannel;
     return `
-    <button class="chip${c.id === currentChannel ? ' active' : ''}${isOwn ? ' chip-own' : ''}"
+    <button class="chip${c.id === currentChannel ? ' active' : ''}${isOwn ? ' chip-own' : ''}${isUnread ? ' chip-unread' : ''}"
       onclick="switchCh('${c.id}','${escHtml(c.label)}')"># ${escHtml(c.label)}${isOwn ? ' 🏠' : ''}</button>
   `;
   }).join('');
@@ -5525,6 +6159,7 @@ function attachAnnouncementsListener() {
         if (st.annDetailId && !document.getElementById('ann-detail').classList.contains('hidden')) {
           renderAnnDetailBody(st.annDetailId);
         }
+        refreshTabBadges();   // v0.4 myAnnAcks更新後に新着マークを反映する
       });
     }, err => {
       console.error('お知らせリスナーエラー:', err);
@@ -5537,6 +6172,8 @@ function attachManualsListener() {
   manualsUnsub = fbDb.collection('manuals').orderBy('createdAt', 'desc')
     .onSnapshot(snap => {
       manuals = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      // v0.4 新着マーク用に自分の既読状況を取り直す(内部でrefreshTabBadges()まで行う)
+      fetchMyManualReads();
       const tabEl = document.getElementById('tab-manuals');
       if (!tabEl || !tabEl.classList.contains('active')) return;
       renderManTab();
@@ -6147,6 +6784,7 @@ function attachKytScenariosListener() {
   kytScenariosUnsub = fbDb.collection('kyt').orderBy('createdAt', 'asc')
     .onSnapshot(snap => {
       kytScenarios = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      refreshTabBadges();   // v0.4 新規シナリオの追加を新着マークに反映する
       const tabEl = document.getElementById('tab-kyt');
       if (!tabEl || !tabEl.classList.contains('active')) return;
       if (document.getElementById('kyt-quiz').classList.contains('hidden')) renderKYTList();
@@ -6946,6 +7584,8 @@ function showMyReportDetail(id) {
   const r = reports.find(x => x.id === id);
   if (!r) return;
   st.fbMineDetailId = id;
+  // v0.4 回答を開いた時点で既読にする(通知センターではなくこの遷移先で書き込む)
+  markReportReplyRead(id);
   const meta = reportStatusMeta[r.status] || reportStatusMeta.open;
   const visMeta = reportVisibilityMeta[r.visibility] || reportVisibilityMeta.private;
 
@@ -7100,6 +7740,7 @@ function attachReportsAdminListener() {
     .orderBy('createdAt', 'desc')
     .onSnapshot(snap => {
       reports = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      refreshTabBadges();   // v0.4 新規報告を新着マークに反映する(管理者側)
 
       if (st.role === 'manager' && !document.getElementById('fb-manager').classList.contains('hidden')) {
         renderReportManager();
@@ -7181,9 +7822,15 @@ function renderReportList() {
     const pendingPublicBadge = r.visibility === 'pending_public'
       ? `<span class="report-visibility-badge">🌐 公開承認待ち</span>`
       : '';
+    // v0.4 タブを開く直前のreportsSeenAtより後の報告を新着としてハイライトする。
+    // 通知センターは「新しい報告がN件」と集約表示するため、どれが新しいかは
+    // ここで示さないと分からなくなる
+    const rd = toDateOrNull(r.createdAt);
+    const isNew = !!(reportsHighlightSince && rd && rd > reportsHighlightSince);
     return `
-      <div class="card report-card" onclick="showReport('${r.id}')">
+      <div class="card report-card${isNew ? ' report-card-new' : ''}" onclick="showReport('${r.id}')">
         <div class="report-card-header">
+          ${isNew ? '<span class="report-new-badge">NEW</span>' : ''}
           <span class="report-status-badge status-${r.status}">${meta.icon} ${meta.label}</span>
           <span class="report-category-tag">${escHtml(r.category)}</span>
           ${pendingPublicBadge}
@@ -7203,6 +7850,8 @@ function showReport(id) {
   const r = reports.find(x => x.id === id);
   if (!r) return;
   st.reportDetailId = id;
+  // v0.4 管理者も報告を投稿できる。自分の報告を開いたときは回答を既読にする
+  if (fbUser && r.submitterUid === fbUser.code) markReportReplyRead(id);
   const meta = reportStatusMeta[r.status] || reportStatusMeta.open;
   const submitter = r.anonymous
     ? `<span class="report-meta-anon">👤 匿名送信</span>`
@@ -7276,6 +7925,7 @@ function showReport(id) {
         通知して保存（投稿者に「新しい回答があります」とプッシュ通知が届きます）
       </label>
       <button class="btn btn-primary" style="width:100%;margin-top:10px" onclick="saveReply('${r.id}')">💾 回答を保存</button>
+      ${replyReadStatusHtml(r)}
     </div>
 
     <div class="report-detail-card">
@@ -7349,6 +7999,32 @@ function insertCannedReply(text) {
   if (input) input.value = text;
 }
 
+// 管理者向け: 回答の既読状況(§5.4)。回答がまだ無いときは何も出さない。
+// 匿名報告は投稿者を特定できないため、空欄にせず理由を明示する
+// (空欄だと不具合と誤解され問い合わせにつながるため)
+function replyReadStatusHtml(r) {
+  const box = (text, color) =>
+    `<div style="margin-top:10px;font-size:12px;color:${color};display:flex;align-items:center;gap:6px">${text}</div>`;
+  if (r.anonymous === true) {
+    return box('🔒 匿名報告のため既読状況は確認できません', 'var(--text-muted)');
+  }
+  const updated = toDateOrNull(r.replyUpdatedAt);
+  if (!updated && !r.replyToReporter) return '';       // 回答がまだ無い
+  if (!updated) {
+    // v0.4より前に保存された回答(replyUpdatedAtが無い)は既読状況を判定できない
+    return box('回答済み・既読状況は記録されていません（v0.4より前の回答）', 'var(--text-muted)');
+  }
+  const read = toDateOrNull(r.replyReadAt);
+  if (read && read >= updated) {
+    const mm = String(read.getMonth() + 1).padStart(2, '0');
+    const dd = String(read.getDate()).padStart(2, '0');
+    const hh = String(read.getHours()).padStart(2, '0');
+    const mi = String(read.getMinutes()).padStart(2, '0');
+    return box(`✓ 回答済み・既読（${mm}/${dd} ${hh}:${mi}）`, 'var(--safe)');
+  }
+  return box('● 回答済み・未読', 'var(--danger)');
+}
+
 async function saveReply(id) {
   const input = document.getElementById('report-reply-input');
   if (!input) return;
@@ -7359,6 +8035,10 @@ async function saveReply(id) {
     await fbDb.collection('reports').doc(id).update({
       replyToReporter: reply,
       statusUpdatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      // v0.4 回答の保存・更新のたびに進める。投稿者側の未読判定は
+      // replyUpdatedAt > replyReadAt の比較で行うため、編集・追記でも必ず更新する
+      // (新規保存時だけ更新すると訂正が投稿者に届かない)
+      replyUpdatedAt: firebase.firestore.FieldValue.serverTimestamp(),
       // onReportReplyNotify(Cloud Functions)がこの値の変化を検知して送信する。
       // 「通知せず保存」の場合はnullのまま=送信条件を満たさない
       replyNotifyIntentAt: shouldNotify ? firebase.firestore.FieldValue.serverTimestamp() : null,
@@ -7649,6 +8329,9 @@ async function handleLogin(e) {
 }
 
 function showLoginScreen() {
+  // fbUserをnullにする前に、デバウンス待ちのバッジ更新を書き出しておく
+  // (nullにしてからでは書き込み先のcodeが失われ、既読にした操作が巻き戻ってしまう)
+  flushBadgeSeen();
   fbUser = null;
   // ログアウト時はチャットリスナーを必ずdetach(権限が失われた状態での購読継続を防ぐ)
   if (currentChannelUnsub) {
@@ -7689,6 +8372,20 @@ function showLoginScreen() {
   // FCM通知configミラーのリスナーも同様に必ずdetach
   if (notificationsConfigUnsub) { notificationsConfigUnsub(); notificationsConfigUnsub = null; }
   notificationsConfig = null;
+  // v0.4 バッジ集約ドキュメントも同様にdetach(未送信分は冒頭でフラッシュ済み)
+  if (badgeStateUnsub) { badgeStateUnsub(); badgeStateUnsub = null; }
+  if (badgeFlushTimer) { clearTimeout(badgeFlushTimer); badgeFlushTimer = null; }
+  badgeState = null;
+  badgeSeenLocal = {};
+  badgePendingPatch = {};
+  // v0.4 チャンネル一覧ミラー・新着判定用キャッシュもクリアし、ドットを消す
+  if (chatChannelsUnsub) { chatChannelsUnsub(); chatChannelsUnsub = null; }
+  chatChannelsMeta = {};
+  myManualReads = {};
+  reportsHighlightSince = null;
+  if (myReplyReportsUnsub) { myReplyReportsUnsub(); myReplyReportsUnsub = null; }
+  myReplyReports = [];
+  refreshTabBadges();
   document.getElementById('app').style.display = 'none';
   document.getElementById('login-screen').style.display = 'flex';
   document.getElementById('login-password').value = '';
@@ -7814,7 +8511,12 @@ async function submitDriverCreate() {
   }
 
   try {
-    await fbDb.collection('users').doc(code).set({ name, role: 'driver', team, passwordChanged: false });
+    // createdAtはv0.4のバッジ移行処理(since = max(BADGE_EPOCH, 登録時刻))が参照する。
+    // これが無いと、リリース後に入社した乗務員に入社前の項目まで新着として湧く
+    await fbDb.collection('users').doc(code).set({
+      name, role: 'driver', team, passwordChanged: false,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
     umAllUsers.push({ code, name, role: 'driver', team, passwordChanged: false });
     document.getElementById('um-create-form').classList.add('hidden');
     renderUserManagementList();
@@ -8200,6 +8902,16 @@ fbAuth.onAuthStateChanged(async (user) => {
     // (許可ダイアログはここでは出さない。既にgranted済みの場合のみサイレントに更新する)
     attachNotificationsConfigListener();
     refreshFcmTokenIfNeeded();
+
+    // v0.4 バッジ集約ドキュメント。未作成なら移行処理で初期化してからミラーを開始する
+    // (通知センター・各タブの新着マークがこの値を基準に未読を判定する)
+    await initBadgeState();
+
+    // v0.4 チャンネル一覧(lastMessage.createdAtのみ参照。メッセージ本体は読まない)
+    attachChatChannelsListener();
+
+    // v0.4 自分の記名報告(回答の未読判定用)。管理者も報告を投稿できるため全ロールで購読する
+    attachMyReplyReportsListener();
 
     // 管理者は報告(reports)全件リスナーをログイン時から開始する
     // (アプリ起動中のみのPWA通知はこのリスナーのdocChangesを起点に発火する)
