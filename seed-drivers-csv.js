@@ -133,8 +133,11 @@ async function seedDriversCsvApply(db, seederAuth, log, updatePlan, createPlan) 
     }
     await seederAuth.signOut(); // セカンダリアプリ側のみサインアウト。メインdbの管理者セッションには無関係
 
+    // createdAtはv0.4のバッジ移行処理(since = max(BADGE_EPOCH, 登録時刻))が参照する。
+    // これが無いと、リリース後に一括投入した乗務員に投入前の項目まで新着として湧く
     await db.collection('users').doc(u.code).set({
       name: u.name, role: 'driver', team: null, passwordChanged: false,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
     });
     log(`✓ Firestore新規作成: users/${u.code} (${u.name})`);
   }
