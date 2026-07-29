@@ -3380,6 +3380,68 @@ function unreadKytScenarios() {
   });
 }
 
+/* --- 報告への回答の未読(乗務員・管理者共通の項目単位判定) ---
+   自分が投稿した記名報告のミラー。バッジ・通知センターはタブを開く前から
+   判定できる必要があるため、報告ビューの表示状態に依存する既存の`reports`とは別に
+   ログイン時から常設で購読する(既存のattachMyReportsListenerは表示中のみ張られ、
+   かつグローバルの`reports`を上書きするため流用できない)。
+   匿名報告はsubmitterUidがnullのためこのクエリに載らず、構造的に対象外になる */
+let myReplyReports = [];
+let myReplyReportsUnsub = null;
+
+function attachMyReplyReportsListener() {
+  if (myReplyReportsUnsub) { myReplyReportsUnsub(); myReplyReportsUnsub = null; }
+  if (!fbUser) return;
+  // submitterUid + createdAt の複合インデックスは既存(firestore.indexes.json)
+  myReplyReportsUnsub = fbDb.collection('reports')
+    .where('submitterUid', '==', fbUser.code)
+    .orderBy('createdAt', 'desc')
+    .onSnapshot(snap => {
+      myReplyReports = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      refreshTabBadges();
+    }, err => {
+      console.error('自分の報告(回答未読判定用)リスナーエラー:', err);
+    });
+}
+
+// 回答が未読か。真偽フラグではなく replyUpdatedAt > replyReadAt の比較で判定する。
+// 管理者が回答を書き直すと replyUpdatedAt が進むため自動で未読へ戻り、
+// 訂正が投稿者に届かない事故を防げる。
+//
+// 移行(§6-3): replyUpdatedAt が無いものは既読扱い。このフィールドはv0.4で新設のため、
+// v0.4以前に作られた報告は必ず未設定であり、過去分が一斉に未読として湧くことはない。
+// (replyReadAt 単独の未設定を既読扱いにすると、新しく書かれた回答が永久に未読に
+//  ならず機能が成立しないため、判定は replyUpdatedAt の有無を起点にしている)
+function reportReplyIsUnread(r) {
+  if (!r) return false;
+  if (r.anonymous === true) return false;          // 匿名は投稿者を特定できないため対象外
+  const updated = toDateOrNull(r.replyUpdatedAt);
+  if (!updated) return false;                      // 回答なし / v0.4以前のデータ
+  const read = toDateOrNull(r.replyReadAt);
+  return read ? updated > read : true;             // 一度も開いていなければ未読
+}
+
+// 自分の記名報告のうち、回答が未読のもの(乗務員・管理者とも同じ判定を使う)
+function unreadReplyReports() {
+  if (!fbUser) return [];
+  return myReplyReports.filter(reportReplyIsUnread);
+}
+
+// 報告詳細を開いたときに呼ぶ。未読の回答があるときだけ replyReadAt を書き込む。
+// 通知センターからは呼ばない(遷移先のこの処理に既読化を委ねる設計)
+async function markReportReplyRead(id) {
+  if (!fbUser) return;
+  const r = myReplyReports.find(x => x.id === id) || reports.find(x => x.id === id);
+  if (!reportReplyIsUnread(r)) return;             // 未読でなければ書き込まない
+  try {
+    await fbDb.collection('reports').doc(id).update({
+      replyReadAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+  } catch (e) {
+    console.error('回答既読の記録エラー:', e);
+  }
+}
+
 // 報告(管理者): reportsSeenAt より後に作成された報告
 function unreadReportsForAdmin() {
   if (!fbUser || fbUser.role !== 'admin') return [];
@@ -3420,8 +3482,9 @@ function computeTabBadges() {
     chat: unreadChatChannelIds().length > 0,
     manuals: unreadManuals().length > 0,
     kyt: unreadKytScenarios().length > 0,
-    // 報告は管理者=新規報告の有無。乗務員側(回答の未読)は段階4で追加する
-    feedback: unreadReportsForAdmin().length > 0,
+    // 報告: 管理者の新規報告(時刻方式)と、自分の記名報告への回答(項目単位)のOR。
+    // 管理者も報告を投稿できるため、両方を見ないと自分宛の回答に気づけない
+    feedback: unreadReportsForAdmin().length > 0 || unreadReplyReports().length > 0,
   };
 }
 
@@ -3502,6 +3565,18 @@ function buildNotificationItems() {
     });
   });
 
+  // 報告への回答(乗務員・管理者共通): 報告1件につき1行。遷移先はその報告の詳細。
+  // 既読化(replyReadAt)は遷移先の詳細表示処理に委ね、ここでは書き込まない
+  unreadReplyReports().forEach(r => {
+    const at = toDateOrNull(r.replyUpdatedAt) || toDateOrNull(r.createdAt);
+    if (!at || at < cutoff) return;
+    items.push({
+      icon: '💬', title: `報告 ${r.displayId || ''} に回答がありました`.trim(), at,
+      mustRead: false,
+      open: () => { goToTab('feedback'); openOwnReportDetail(r.id); },
+    });
+  });
+
   // 報告(管理者): 集約して1行。どれが新しいかは報告タブ側のハイライトで示す
   const newReports = unreadReportsForAdmin().filter(r => {
     const at = toDateOrNull(r.createdAt);
@@ -3526,6 +3601,24 @@ function buildNotificationItems() {
 function goToTab(tabId) {
   const btn = document.querySelector(`.nav-item[data-tab="${tabId}"]`);
   if (btn) switchTab(tabId, btn);
+}
+
+// 自分が投稿した報告の詳細を開く。ロールによって画面が異なるため入口を分ける
+// (管理者は管理ビューのみ、乗務員は「自分の報告」ビューを経由する)
+function openOwnReportDetail(reportId) {
+  if (fbUser && fbUser.role === 'admin') {
+    showReport(reportId);
+    return;
+  }
+  const btn = document.querySelector('#fb-driver-nav .chip[data-view="mine"]');
+  switchFbDriverView('mine', btn);
+  // attachMyReportsListener()のスナップショット到着後でないと対象が見つからないため、
+  // 一覧の描画を待ってから詳細を開く
+  const openWhenReady = (tries = 0) => {
+    if (reports.some(x => x.id === reportId)) { showMyReportDetail(reportId); return; }
+    if (tries < 20) setTimeout(() => openWhenReady(tries + 1), 100);
+  };
+  openWhenReady();
 }
 
 // ベルの点灯 = 通知センターに表示される項目が1件以上。
@@ -7490,6 +7583,8 @@ function showMyReportDetail(id) {
   const r = reports.find(x => x.id === id);
   if (!r) return;
   st.fbMineDetailId = id;
+  // v0.4 回答を開いた時点で既読にする(通知センターではなくこの遷移先で書き込む)
+  markReportReplyRead(id);
   const meta = reportStatusMeta[r.status] || reportStatusMeta.open;
   const visMeta = reportVisibilityMeta[r.visibility] || reportVisibilityMeta.private;
 
@@ -7754,6 +7849,8 @@ function showReport(id) {
   const r = reports.find(x => x.id === id);
   if (!r) return;
   st.reportDetailId = id;
+  // v0.4 管理者も報告を投稿できる。自分の報告を開いたときは回答を既読にする
+  if (fbUser && r.submitterUid === fbUser.code) markReportReplyRead(id);
   const meta = reportStatusMeta[r.status] || reportStatusMeta.open;
   const submitter = r.anonymous
     ? `<span class="report-meta-anon">👤 匿名送信</span>`
@@ -7827,6 +7924,7 @@ function showReport(id) {
         通知して保存（投稿者に「新しい回答があります」とプッシュ通知が届きます）
       </label>
       <button class="btn btn-primary" style="width:100%;margin-top:10px" onclick="saveReply('${r.id}')">💾 回答を保存</button>
+      ${replyReadStatusHtml(r)}
     </div>
 
     <div class="report-detail-card">
@@ -7900,6 +7998,32 @@ function insertCannedReply(text) {
   if (input) input.value = text;
 }
 
+// 管理者向け: 回答の既読状況(§5.4)。回答がまだ無いときは何も出さない。
+// 匿名報告は投稿者を特定できないため、空欄にせず理由を明示する
+// (空欄だと不具合と誤解され問い合わせにつながるため)
+function replyReadStatusHtml(r) {
+  const box = (text, color) =>
+    `<div style="margin-top:10px;font-size:12px;color:${color};display:flex;align-items:center;gap:6px">${text}</div>`;
+  if (r.anonymous === true) {
+    return box('🔒 匿名報告のため既読状況は確認できません', 'var(--text-muted)');
+  }
+  const updated = toDateOrNull(r.replyUpdatedAt);
+  if (!updated && !r.replyToReporter) return '';       // 回答がまだ無い
+  if (!updated) {
+    // v0.4より前に保存された回答(replyUpdatedAtが無い)は既読状況を判定できない
+    return box('回答済み・既読状況は記録されていません（v0.4より前の回答）', 'var(--text-muted)');
+  }
+  const read = toDateOrNull(r.replyReadAt);
+  if (read && read >= updated) {
+    const mm = String(read.getMonth() + 1).padStart(2, '0');
+    const dd = String(read.getDate()).padStart(2, '0');
+    const hh = String(read.getHours()).padStart(2, '0');
+    const mi = String(read.getMinutes()).padStart(2, '0');
+    return box(`✓ 回答済み・既読（${mm}/${dd} ${hh}:${mi}）`, 'var(--safe)');
+  }
+  return box('● 回答済み・未読', 'var(--danger)');
+}
+
 async function saveReply(id) {
   const input = document.getElementById('report-reply-input');
   if (!input) return;
@@ -7910,6 +8034,10 @@ async function saveReply(id) {
     await fbDb.collection('reports').doc(id).update({
       replyToReporter: reply,
       statusUpdatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      // v0.4 回答の保存・更新のたびに進める。投稿者側の未読判定は
+      // replyUpdatedAt > replyReadAt の比較で行うため、編集・追記でも必ず更新する
+      // (新規保存時だけ更新すると訂正が投稿者に届かない)
+      replyUpdatedAt: firebase.firestore.FieldValue.serverTimestamp(),
       // onReportReplyNotify(Cloud Functions)がこの値の変化を検知して送信する。
       // 「通知せず保存」の場合はnullのまま=送信条件を満たさない
       replyNotifyIntentAt: shouldNotify ? firebase.firestore.FieldValue.serverTimestamp() : null,
@@ -8254,6 +8382,8 @@ function showLoginScreen() {
   chatChannelsMeta = {};
   myManualReads = {};
   reportsHighlightSince = null;
+  if (myReplyReportsUnsub) { myReplyReportsUnsub(); myReplyReportsUnsub = null; }
+  myReplyReports = [];
   refreshTabBadges();
   document.getElementById('app').style.display = 'none';
   document.getElementById('login-screen').style.display = 'flex';
@@ -8778,6 +8908,9 @@ fbAuth.onAuthStateChanged(async (user) => {
 
     // v0.4 チャンネル一覧(lastMessage.createdAtのみ参照。メッセージ本体は読まない)
     attachChatChannelsListener();
+
+    // v0.4 自分の記名報告(回答の未読判定用)。管理者も報告を投稿できるため全ロールで購読する
+    attachMyReplyReportsListener();
 
     // 管理者は報告(reports)全件リスナーをログイン時から開始する
     // (アプリ起動中のみのPWA通知はこのリスナーのdocChangesを起点に発火する)
