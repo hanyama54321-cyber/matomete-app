@@ -136,6 +136,49 @@ header {
 .logo-title { font-weight: 700; font-size: 13px; color: var(--navy); line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .logo-sub { font-size: 8px; letter-spacing: .16em; color: var(--primary); font-weight: 700; white-space: nowrap; }
 .header-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+/* 通知センターのベル(v0.4でv0.3.1以前の実装を復活)。
+   バッジは件数を出さず赤い点のみ。点の有無=形で判別でき、色だけに依存しない */
+.bell-btn {
+  position: relative;
+  width: 34px; height: 34px;
+  border-radius: 50%;
+  background: var(--surface2);
+  border: none;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px;
+}
+.bell-dot {
+  position: absolute;
+  top: 2px; right: 2px;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--danger);
+  border: 1.5px solid white;
+}
+/* 通知センターの行(v0.4)。専用クラスのみで構成し、既存の共有クラスは使わない */
+.notif-row {
+  width: 100%;
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 4px;
+  background: none; border: none;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  font-family: inherit;
+}
+.notif-row:active { background: var(--surface2); }
+.notif-icon { font-size: 20px; flex-shrink: 0; }
+.notif-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.notif-title {
+  font-size: 14px; font-weight: 600; color: var(--navy);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.notif-time { font-size: 11px; color: var(--text-muted); }
+.notif-mustread {
+  flex-shrink: 0;
+  background: var(--danger); color: white;
+  font-size: 10px; font-weight: 700;
+  border-radius: 4px; padding: 2px 6px;
+}
 .avatar {
   width: 34px; height: 34px;
   border-radius: 50%;
@@ -2024,6 +2067,11 @@ header {
       <button id="admin-toggle-btn" class="admin-toggle-btn" onclick="toggleAdminMode()" style="display:none">
         <span>🛠</span><span id="admin-toggle-label">管理者</span>
       </button>
+      <!-- 通知センター(v0.4)。点は「通知センターに出る項目が1件以上」のときのみ表示。
+           チャットは通知センターに載せないため、チャットの新着では点灯しない -->
+      <button id="bell-btn" class="bell-btn" aria-label="通知" onclick="openNotificationCenter()">
+        🔔<span id="bell-dot" class="bell-dot" style="display:none"></span>
+      </button>
       <!-- ユーザーアバター（タップでユーザーメニュー） -->
       <button id="avatar-btn" class="avatar" style="border:none;cursor:pointer;position:relative" onclick="toggleUserMenu()">
         <span id="avatar-text">南</span>
@@ -3168,6 +3216,17 @@ function attachBadgeStateListener(ref) {
   if (badgeStateUnsub) { badgeStateUnsub(); badgeStateUnsub = null; }
   badgeStateUnsub = ref.onSnapshot(snap => {
     badgeState = snap.exists ? snap.data() : null;
+    // サーバー確定値が届いたフィールドは、ローカル先行値(端末時計のnew Date())を破棄し、
+    // 以後の未読判定をサーバー時刻だけで行う。これが無いとローカル値が
+    // セッション中ずっと優先され続け、端末時計のズレがドットの点灯・消灯に影響する
+    // (時計が遅れている端末では既読にしたドットが消えない、進んでいる端末では
+    //  新着が点灯しない、という形で表面化する)
+    if (badgeState && !snap.metadata.hasPendingWrites) {
+      Object.keys(badgeSeenLocal).forEach(field => {
+        if (badgePendingPatch[field]) return;              // まだ書き込み待ちなら保持する
+        if (getBadgeServerSeenAt(field)) delete badgeSeenLocal[field];
+      });
+    }
     refreshTabBadges();   // v0.4 他端末での既読も新着マークに反映する
   }, err => {
     console.error('バッジ状態リスナーエラー:', err);
@@ -3176,14 +3235,19 @@ function attachBadgeStateListener(ref) {
 
 // 最終閲覧時刻の読み出し。書き込み確定前のローカル先行値があればそちらを優先する
 // (serverTimestamp()はサーバー確定までローカルスナップショットでnullになるため)
-function getBadgeSeenAt(field) {
-  if (badgeSeenLocal[field]) return badgeSeenLocal[field];
+// サーバー確定値のみを読む(ローカル先行値は見ない)
+function getBadgeServerSeenAt(field) {
   if (!badgeState) return null;
   if (field.startsWith('chat.')) {
     const id = field.slice(5);
-    return (badgeState.chat && badgeState.chat[id]) ? badgeState.chat[id].toDate() : null;
+    return (badgeState.chat && badgeState.chat[id]) ? toDateOrNull(badgeState.chat[id]) : null;
   }
-  return badgeState[field] ? badgeState[field].toDate() : null;
+  return badgeState[field] ? toDateOrNull(badgeState[field]) : null;
+}
+
+function getBadgeSeenAt(field) {
+  if (badgeSeenLocal[field]) return badgeSeenLocal[field];
+  return getBadgeServerSeenAt(field);
 }
 
 // 「このタブ/チャンネルを見た」を記録する。fieldは 'reportsSeenAt' | 'kytSeenAt' | 'chat.<id>'
@@ -3380,6 +3444,134 @@ function refreshTabBadges() {
     }
   });
   renderChannelChips();   // チャンネルチップ側の新着表示も同時に更新する
+  refreshBellDot();       // ベルの点も同じタイミングで更新する
+}
+
+/* ===== v0.4 通知センター =====
+   一覧は上の未読判定関数(unreadAnnouncements/unreadManuals/unreadKytScenarios/
+   unreadReportsForAdmin)をそのまま再利用して組み立てる。ここで独自のクエリや
+   判定を書くと、タブのドットと内容が必ずズレる(設計指示書 §2)。
+   通知センター自身は既読を一切書き込まない。行タップは遷移のみを行い、
+   既読化は遷移先の既存処理(周知・手順書=詳細を開いた時の自動登録、
+   KYT・報告=switchTab()のmarkBadgeSeen)に委ねる。 */
+
+const NOTIF_MAX_AGE_DAYS = 90;   // これより古い項目は表示しない(90日アーカイブと整合)
+
+function notifCutoffDate() {
+  return new Date(Date.now() - NOTIF_MAX_AGE_DAYS * 24 * 60 * 60 * 1000);
+}
+
+// 通知センターに出す行を組み立てる。新しい順。
+// チャットは載せない(仕様)。報告(乗務員側)は段階4で追加する
+function buildNotificationItems() {
+  if (!fbUser) return [];
+  const cutoff = notifCutoffDate();
+  const items = [];
+
+  // 周知: 1件につき1行。mustReadは本体に既にあるフィールドをそのまま読む
+  unreadAnnouncements().forEach(a => {
+    const at = toDateOrNull(a.createdAt);
+    if (!at || at < cutoff) return;
+    items.push({
+      icon: '📢', title: a.title || '(無題)', at,
+      mustRead: a.mustRead === true,
+      open: () => { goToTab('announcements'); showAnn(a.id); },
+    });
+  });
+
+  // 手順書: 1件につき1行
+  unreadManuals().forEach(m => {
+    const at = toDateOrNull(m.createdAt);
+    if (!at || at < cutoff) return;
+    items.push({
+      icon: '📋', title: m.title || '(無題)', at,
+      mustRead: false,
+      open: () => { goToTab('manuals'); showMan(m.id); },
+    });
+  });
+
+  // KYT: 新規シナリオ1件につき1行。1行タップでkytSeenAtが更新され他の行も消えるが、
+  // 同一タブ内で表示がズレるわけではないため仕様として許容している
+  unreadKytScenarios().forEach(s => {
+    const at = toDateOrNull(s.createdAt);
+    if (!at || at < cutoff) return;
+    items.push({
+      icon: '⚠️', title: '新しいシナリオが追加されました', at,
+      mustRead: false,
+      open: () => { goToTab('kyt'); },
+    });
+  });
+
+  // 報告(管理者): 集約して1行。どれが新しいかは報告タブ側のハイライトで示す
+  const newReports = unreadReportsForAdmin().filter(r => {
+    const at = toDateOrNull(r.createdAt);
+    return at && at >= cutoff;
+  });
+  if (newReports.length > 0) {
+    const latest = newReports.reduce((acc, r) => {
+      const at = toDateOrNull(r.createdAt);
+      return (!acc || at > acc) ? at : acc;
+    }, null);
+    items.push({
+      icon: '✉️', title: `新しい報告が ${newReports.length} 件`, at: latest,
+      mustRead: false,
+      open: () => { goToTab('feedback'); },
+    });
+  }
+
+  return items.sort((a, b) => b.at - a.at);
+}
+
+// ボトムナビのボタンを介してタブを切り替える(switchTabはbtn要素を必要とするため)
+function goToTab(tabId) {
+  const btn = document.querySelector(`.nav-item[data-tab="${tabId}"]`);
+  if (btn) switchTab(tabId, btn);
+}
+
+// ベルの点灯 = 通知センターに表示される項目が1件以上。
+// チャットは通知センターに載せないため、チャットの新着では点灯しない
+function refreshBellDot() {
+  const dot = document.getElementById('bell-dot');
+  if (!dot) return;
+  dot.style.display = buildNotificationItems().length > 0 ? '' : 'none';
+}
+
+function openNotificationCenter() {
+  const items = buildNotificationItems();
+  notifOpenHandlers = items.map(i => i.open);   // onclickから参照するため添字で保持
+
+  const body = items.length === 0
+    ? `<div style="text-align:center;padding:28px 8px;color:var(--text-muted)">
+         <div style="font-size:34px;margin-bottom:10px">🔔</div>
+         <div style="font-size:14px">新しいお知らせはありません</div>
+       </div>`
+    : items.map((it, idx) => `
+        <button class="notif-row" onclick="openNotificationItem(${idx})">
+          <span class="notif-icon">${it.icon}</span>
+          <span class="notif-main">
+            <span class="notif-title">${escHtml(it.title)}</span>
+            <span class="notif-time">${escHtml(fmtRelativeTime({ toDate: () => it.at }))}</span>
+          </span>
+          ${it.mustRead ? '<span class="notif-mustread">必読</span>' : ''}
+        </button>`).join('');
+
+  openModal(`
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title">🔔 通知</div>
+        <button class="modal-close" onclick="closeModal()">✕</button>
+      </div>
+      <div class="modal-body">${body}</div>
+    </div>`);
+}
+
+let notifOpenHandlers = [];
+
+// 行タップ: 遷移して閉じるだけ。既読の書き込みは行わない(遷移先の既存処理に委ねる)
+function openNotificationItem(idx) {
+  const fn = notifOpenHandlers[idx];
+  closeModal();
+  if (fn) fn();
 }
 
 /* ===== FCMプッシュ通知: config/notifications ミラー(Stage0ゲート判定用) ===== */
