@@ -80,6 +80,12 @@ service cloud.firestore {
       match /tokens/{tokenId} {
         allow read, write: if isSignedIn() && myCode() == code;
       }
+
+      // v0.4 バッジ集約ドキュメント(state/badges)。通知センターと各タブの新着マークが
+      // 参照する最終閲覧時刻を保持する。本人のみ読み書き可(adminも他人の分は触れない)
+      match /state/{docId} {
+        allow read, write: if isSignedIn() && myCode() == code;
+      }
     }
 
     // アプリ全体設定。現状は config/notifications ({openToAllUsers:bool}) のみ使用。

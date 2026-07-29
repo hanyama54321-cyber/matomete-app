@@ -3052,6 +3052,151 @@ async function recordSession() {
   }
 }
 
+/* ===== v0.4 バッジ集約ドキュメント(users/{code}/state/badges) =====
+   通知センターと各タブの新着マークが参照する唯一の情報源。
+   周知・手順書は既存のreadsサブコレクション(項目単位)、報告(管理者)・KYT・チャットは
+   ここに持つ最終閲覧時刻(時刻方式)で未読を判定する。
+   通知センター専用の既読フラグは作らない(タブ内で表示がズレるため)。 */
+
+// バッジ基準時刻。この時刻より前に作られた項目は既読扱いとする(移行処理用)。
+// リリース直後に全乗務員へ過去分の新着が一斉に湧くのを防ぐための足切り。
+// ※リリース日が大きくずれる場合はこの値を実際のリリース日時に更新すること
+const BADGE_EPOCH = new Date('2026-07-29T00:00:00+09:00');
+
+// チャンネル別の最終閲覧時刻を持つ対象。'general'/'safety' + 9班(team_a〜team_i)
+const BADGE_CHANNEL_IDS = [
+  'general', 'safety',
+  'team_a', 'team_b', 'team_c', 'team_d', 'team_e', 'team_f', 'team_g', 'team_h', 'team_i',
+];
+
+let badgeState = null;        // users/{code}/state/badges のミラー
+let badgeStateUnsub = null;
+let badgeSeenLocal = {};      // 書き込み確定前のローカル先行反映(UIが即座に消えるように)
+let badgePendingPatch = {};   // デバウンス中の未送信パッチ
+let badgeFlushTimer = null;
+let badgeLastFlushAt = 0;
+const BADGE_FLUSH_INTERVAL_MS = 5000; // 集約ドキュメントへの書き込みは5秒に1回を上限とする
+
+// 移行処理の基準時刻を決める。ユーザーの登録時刻とBADGE_EPOCHの新しい方を返す。
+// 副作用が無く単体で検証できるよう純関数として切り出している。
+// ※現状 users ドキュメントに登録時刻フィールドは存在しないため、実際にはBADGE_EPOCHが
+//   採用される。将来 users.createdAt を持たせれば、リリース後に入社した乗務員は
+//   自分の登録時刻が基準になり、入社前の項目が新着として湧かなくなる
+function computeBadgeBaseDate(userCreatedAt) {
+  let reg = null;
+  if (userCreatedAt) {
+    reg = (typeof userCreatedAt.toDate === 'function') ? userCreatedAt.toDate() : new Date(userCreatedAt);
+    if (isNaN(reg.getTime())) reg = null;
+  }
+  return (reg && reg > BADGE_EPOCH) ? reg : BADGE_EPOCH;
+}
+
+// 集約ドキュメントの初期値を組み立てる(純関数。値はDateで返し、書き込み側でTimestampへ変換)
+function buildInitialBadgeState(userCreatedAt) {
+  const base = computeBadgeBaseDate(userCreatedAt);
+  const chat = {};
+  BADGE_CHANNEL_IDS.forEach(id => { chat[id] = base; });
+  return { since: base, reportsSeenAt: base, kytSeenAt: base, chat };
+}
+
+// ログイン時に1回呼ぶ。未作成なら移行処理で初期化し、以後はonSnapshotでミラーする
+async function initBadgeState() {
+  if (!fbUser) return;
+  const ref = fbDb.collection('users').doc(fbUser.code).collection('state').doc('badges');
+  try {
+    const snap = await ref.get();
+    if (!snap.exists) {
+      // 初回のみ: リリース前の項目を既読扱いにする足切り値で初期化する
+      const init = buildInitialBadgeState(fbUser.createdAt);
+      const ts = (d) => firebase.firestore.Timestamp.fromDate(d);
+      const chat = {};
+      Object.keys(init.chat).forEach(id => { chat[id] = ts(init.chat[id]); });
+      await ref.set({
+        since: ts(init.since),
+        reportsSeenAt: ts(init.reportsSeenAt),
+        kytSeenAt: ts(init.kytSeenAt),
+        chat,
+      });
+    }
+    attachBadgeStateListener(ref);
+  } catch (e) {
+    console.error('バッジ状態の初期化エラー:', e);
+  }
+}
+
+function attachBadgeStateListener(ref) {
+  if (badgeStateUnsub) { badgeStateUnsub(); badgeStateUnsub = null; }
+  badgeStateUnsub = ref.onSnapshot(snap => {
+    badgeState = snap.exists ? snap.data() : null;
+  }, err => {
+    console.error('バッジ状態リスナーエラー:', err);
+  });
+}
+
+// 最終閲覧時刻の読み出し。書き込み確定前のローカル先行値があればそちらを優先する
+// (serverTimestamp()はサーバー確定までローカルスナップショットでnullになるため)
+function getBadgeSeenAt(field) {
+  if (badgeSeenLocal[field]) return badgeSeenLocal[field];
+  if (!badgeState) return null;
+  if (field.startsWith('chat.')) {
+    const id = field.slice(5);
+    return (badgeState.chat && badgeState.chat[id]) ? badgeState.chat[id].toDate() : null;
+  }
+  return badgeState[field] ? badgeState[field].toDate() : null;
+}
+
+// 「このタブ/チャンネルを見た」を記録する。fieldは 'reportsSeenAt' | 'kytSeenAt' | 'chat.<id>'
+// 実際の書き込みはデバウンスし、5秒に1回を上限とする(タブ離脱時は即時フラッシュ)
+function markBadgeSeen(field) {
+  if (!fbUser) return;
+  badgeSeenLocal[field] = new Date();            // UIは即座に既読化する
+  badgePendingPatch[field] = firebase.firestore.FieldValue.serverTimestamp();
+  scheduleBadgeFlush();
+}
+
+function scheduleBadgeFlush() {
+  if (badgeFlushTimer) return;
+  const wait = Math.max(0, BADGE_FLUSH_INTERVAL_MS - (Date.now() - badgeLastFlushAt));
+  badgeFlushTimer = setTimeout(() => {
+    badgeFlushTimer = null;
+    flushBadgeSeen();
+  }, wait);
+}
+
+function flushBadgeSeen() {
+  if (!fbUser) return;
+  const patch = badgePendingPatch;
+  badgePendingPatch = {};
+  const keys = Object.keys(patch);
+  if (keys.length === 0) return;
+  badgeLastFlushAt = Date.now();
+  if (badgeFlushTimer) { clearTimeout(badgeFlushTimer); badgeFlushTimer = null; }
+  // 'chat.<id>' はネストしたマップへ組み直してから書き込む。
+  // set(..., {merge:true}) はドット付きキーをネストパスとして解釈せず、ドットを含む
+  // リテラルなフィールド名として扱うため、そのまま渡すと読み出し側(badgeState.chat[id])と
+  // 噛み合わず既読が永久に反映されない。merge:trueはマップを深くマージするため、
+  // このネスト形式なら他チャンネルの値を壊さずに1チャンネルだけ更新できる
+  const payload = {};
+  keys.forEach(k => {
+    if (k.startsWith('chat.')) {
+      payload.chat = payload.chat || {};
+      payload.chat[k.slice(5)] = patch[k];
+    } else {
+      payload[k] = patch[k];
+    }
+  });
+  // 複数端末の競合は最後勝ちでよい(仕様)。ドット表示の基準時刻のみのため実害がない
+  fbDb.collection('users').doc(fbUser.code).collection('state').doc('badges')
+    .set(payload, { merge: true })
+    .catch(e => console.error('バッジ状態の保存エラー:', e));
+}
+
+// タブ離脱・アプリ終了時は溜まっているぶんを取りこぼさずに書き出す
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') flushBadgeSeen();
+});
+window.addEventListener('pagehide', flushBadgeSeen);
+
 /* ===== FCMプッシュ通知: config/notifications ミラー(Stage0ゲート判定用) ===== */
 let notificationsConfig = null;
 let notificationsConfigUnsub = null;
@@ -7649,6 +7794,9 @@ async function handleLogin(e) {
 }
 
 function showLoginScreen() {
+  // fbUserをnullにする前に、デバウンス待ちのバッジ更新を書き出しておく
+  // (nullにしてからでは書き込み先のcodeが失われ、既読にした操作が巻き戻ってしまう)
+  flushBadgeSeen();
   fbUser = null;
   // ログアウト時はチャットリスナーを必ずdetach(権限が失われた状態での購読継続を防ぐ)
   if (currentChannelUnsub) {
@@ -7689,6 +7837,12 @@ function showLoginScreen() {
   // FCM通知configミラーのリスナーも同様に必ずdetach
   if (notificationsConfigUnsub) { notificationsConfigUnsub(); notificationsConfigUnsub = null; }
   notificationsConfig = null;
+  // v0.4 バッジ集約ドキュメントも同様にdetach(未送信分は冒頭でフラッシュ済み)
+  if (badgeStateUnsub) { badgeStateUnsub(); badgeStateUnsub = null; }
+  if (badgeFlushTimer) { clearTimeout(badgeFlushTimer); badgeFlushTimer = null; }
+  badgeState = null;
+  badgeSeenLocal = {};
+  badgePendingPatch = {};
   document.getElementById('app').style.display = 'none';
   document.getElementById('login-screen').style.display = 'flex';
   document.getElementById('login-password').value = '';
@@ -8200,6 +8354,10 @@ fbAuth.onAuthStateChanged(async (user) => {
     // (許可ダイアログはここでは出さない。既にgranted済みの場合のみサイレントに更新する)
     attachNotificationsConfigListener();
     refreshFcmTokenIfNeeded();
+
+    // v0.4 バッジ集約ドキュメント。未作成なら移行処理で初期化してからミラーを開始する
+    // (通知センター・各タブの新着マークがこの値を基準に未読を判定する)
+    await initBadgeState();
 
     // 管理者は報告(reports)全件リスナーをログイン時から開始する
     // (アプリ起動中のみのPWA通知はこのリスナーのdocChangesを起点に発火する)
