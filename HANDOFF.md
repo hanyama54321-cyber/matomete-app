@@ -7,16 +7,20 @@
 - **リポジトリ**: `matomete-app`(安全配送まとめてアプリ)。単一ファイルSPA([index.html](index.html)、約8600行)+ Firebase(Firestore/Auth/Storage/**Cloud Functions/FCM**)。
 - **ブランチ運用**: `main`=本番公開中(GitHub Pages、Firebase接続版)、`develop`=開発中。リリース時は`develop`→`main`マージ(手順は[README.md](README.md)参照)。
 - **Firebaseプロジェクト**: `anzen-matomete-app`(Blazeプラン、asia-northeast1)。
-- **アプリバージョン**: **developはv0.4(通知センター、実装完了・マージ待ち)。mainはv0.3.2**(マージコミット`bc6c676`、タグ`v0.3.2`)。
+- **アプリバージョン**: **v0.4(mainへ本公開済み)**。マージコミット`cf15ad2`、タグ`v0.4`。切り戻し先は既存タグ`v0.3.2`(`bc6c676`)。`develop`と`main`は同一内容。
 
-## 最優先の申し送り: v0.4のマージ前に必ず行うこと
+## 次のセッションで最初に確認すること
 
-**`index.html`の`BADGE_EPOCH`(現在は実装日の`2026-07-29T00:00:00+09:00`)を、実際のリリース時刻へ更新すること。**
-定数の直上に同じ注意書きを置いてあります。更新を忘れると、実装日からリリースまでの間に発生した
-出来事が全乗務員に新着として一斉に出ます。特に時刻方式のタブ(チャット・KYT・報告の管理者側)が
-直撃し、全チャンネルが一斉に発光します。
+**v0.4の実機確認がまだです。** 本番反映(GitHub Pages)とブラウザでの確認までは完了していますが、
+iOS実機での確認は依頼者(南野さん)が実施する取り決めです。セッション開始時に結果を聞いてください。
 
-## 本セッション: v0.4 通知センター＋各タブの新着マーク(develop、マージ待ち)
+1. ベル・各タブの新着マーク・通知センターの表示と遷移(v0.4)
+2. マニュアル3点の画像が実物と一致するか(後述「マニュアルへの影響」参照)
+3. v0.3系の積み残し2件(下記「次にやるとよさそうなこと」の2・3)
+
+問題があれば`v0.3.2`タグへ切り戻せます。
+
+## 前セッション: v0.4 通知センター＋各タブの新着マーク(mainへ本公開済み)
 
 設計指示書に基づき5段階に分けて実装しました(段階ごとに commit を分けています)。
 
@@ -26,7 +30,14 @@
 | 2 | `4ddfdf4` | 各タブの未読判定とタブの新着マーク、`users.createdAt`追加 |
 | 3 | `7c26a3d` | ベルの復活と通知センター |
 | 4 | `bfaafa0` | 報告の双方向既読と管理者UI |
-| 5 | (本コミット) | 横断確認・バージョン更新・ドキュメント整備 |
+| 5 | `20d73eb` | 横断確認・バージョン更新・ドキュメント整備 |
+| リリース | `48a4637` → `cf15ad2` | BADGE_EPOCH更新 → mainへ`--no-ff`マージ、タグ`v0.4` |
+
+**`BADGE_EPOCH`は`2026-07-30T03:30:00+09:00`(リリース時刻)に更新済み**です。この定数は
+`state/badges`が未作成のユーザーを初期化するときの足切り値としてのみ使われるため、
+既にログイン済みのユーザーには以後影響しません。
+
+**ルールテストは189件全pass**、`firestore.rules`は本番デプロイ済みです。
 
 ### 中核となる設計原則(改修時に必ず守ること)
 
@@ -293,7 +304,7 @@ npx firebase-tools deploy --only functions --project anzen-matomete-app
 npx firebase-tools deploy --only storage --project anzen-matomete-app
 ```
 
-現在169件のルールテストが全pass(`test/rules/{users,reports,manuals,storage,kyt,teams,announcements,channels,sessions,tokens,config}.test.js`)。`firestore.rules`/`firestore.indexes.json`・Cloud Functions(8関数)・`index.html`(FCMクライアント実装)ともv0.3としてmainへマージ・本番デプロイ済み。
+現在**189件**のルールテストが全pass(`test/rules/`に12ファイル: `users,reports,manuals,storage,kyt,teams,announcements,channels,sessions,tokens,config,badges`)。`firestore.rules`/`firestore.indexes.json`・Cloud Functions(8関数)・`index.html`ともv0.4としてmainへマージ・本番デプロイ済み。
 
 ## コミット時の運用ルール(このセッションで一貫していた点)
 
@@ -303,15 +314,20 @@ npx firebase-tools deploy --only storage --project anzen-matomete-app
 - 実機テストで本番Firestoreにテストデータを書き込んだ場合は、テスト直後に必ず削除して原状復帰する。**ただし`sessions`コレクションは`allow update, delete: if false`(追記のみ)のため、検証で作成したセッションレコード自体は削除できない**(`users.lastActiveDate`は自己更新可能なため元に戻せる)。
 - **mainへのマージは指示がない限り行わない**。
 - リモートに未取得のコミットがある場合は`git fetch`→`git rebase origin/develop`してからpushする。
-- **作業開始時は必ず`git branch`で`develop`にいることを確認する**。本セッション開始時、前回セッションのv0.2.3マージ後の`git checkout main`から戻し忘れており、`main`ブランチのまま実装を始めてしまっていたことに気づいて`git checkout develop`で移し替えた実績がある(まだ何もコミットしていなかったため実害なし)。
+- **作業開始時は必ず`git branch`で`develop`にいることを確認する**。以前、v0.2.3マージ後の`git checkout main`から戻し忘れ、`main`ブランチのまま実装を始めてしまった実績がある(コミット前に気づき`git checkout develop`で移し替えたため実害なし)。
+- **新しいグローバル関数・定数を定義する前に、必ず全文検索で同名の有無を確認する**(南野さんの指示により毎回適用)。単一ファイル構成のため、既存の同名関数をエラーも警告もなく上書きして別機能を壊す事故が起こり得る(v0.4段階3で`fmtRelativeTime`が実際に発生)。実装後は重複カウントで機械的に検証すること。手順は[TECH_DEBT.md](TECH_DEBT.md)項目11に記載。
+- **共有CSSクラスを変更する前に、必ず全使用箇所を確認する**。枚数など利用側ごとに異なる値はCSS本体ではなく利用側でインライン上書きする(v0.3.1で`.reach-stats`がKYT管理画面を巻き込んだ実績あり。同じくTECH_DEBT.md項目11)。
+- 大きな機能は段階に分けて実装し、**各段階でコミット・報告してから次へ進む**(v0.4は5段階で実施)。段階ごとに実測での検証結果を添えると、仕様の取り違えを早期に発見できる。
 
 ## 次にやるとよさそうなこと(優先度は南野さん判断)
 
-1. **[最優先]** v0.4(通知センター)はdevelopに実装完了・**mainマージとタグ付けは依頼者側で実施する取り決め**。マージ前に必ず:
-   - **`BADGE_EPOCH`を実際のリリース時刻へ更新する**(冒頭の申し送り参照。忘れると全乗務員に新着が一斉に出る)
-   - iOS実機で、ベル・各タブの新着マーク・通知センターの表示と遷移を確認
-   - マニュアル3点の画像が実物と一致するか確認(上記「マニュアルへの影響」参照)
+1. **[最優先]** v0.4のiOS実機確認(ベル・新着マーク・通知センターの表示と遷移)。あわせてマニュアル3点の
+   画像が実物と一致するか確認し、改定要否を判断する(上記「マニュアルへの影響」参照)。
 2. v0.3の残タスク: 一般ドライバーのメニューに「通知設定」が実際に表示されることを実機/実ログインで確認する(Stage2は`config/notifications.openToAllUsers`をtrueに更新済み。メニュー項目のゲート修正`96db84f`はStage1検証より後に入ったため未確認のまま)。問題があれば`config/notifications.openToAllUsers`を`false`に戻すだけでStage0相当に即座に戻せる。
 3. v0.3.1の残タスク: iOS実機でタブバー下の白帯が解消されているか、`#app`の`position:fixed`化による揺れの回帰が無いかを確認(v0.3.2で`status-bar-style`を`default`に変更して対処済み)。
 4. `st.currentUid`依存の残存箇所(モック周知データ・チャット未読・`recalcTeamCounts()`)を`fbUser.code`ベースへ統一(TECH_DEBT.md #1)。
-5. developに他の未反映変更が無いか確認しつつ、次のリリースがあればREADME.mdのリリース手順に従う。
+5. 未実装のまま残っている機能: ゲームタブ(「近日公開」のプレースホルダーのみ)、周知タブの予約配信の
+   自動公開(TECH_DEBT #4)、パスワードのセルフリセット(#3)、メール通知(#5・
+   [docs/メール通知_将来実装メモ.md](docs/メール通知_将来実装メモ.md))。いずれも`functions/`基盤に
+   乗せて実装できる状態です。
+6. 次のリリースがあればREADME.mdのリリース手順に従う。
