@@ -218,3 +218,54 @@ v0.3.1で、周知の統計カードが3枚→2枚になったのに合わせて
 前例がある(`index.html:4541`)ため、将来「この編集は新着として知らせる」を選択制にしたく
 なった時点で同じパターンで追加すればよい。**後から入れるコストが低いことが分かったので今は入れない**、
 という判断。
+
+## 14. セレクタを失ったCSS宣言ブロックが後続ルールを飲み込む(v0.4.2で対応予定)
+
+### 症状
+
+`index.html:1039`付近、`.reach-mini-public:hover`の直後に**セレクタ行を失った宣言ブロック**がある。
+
+```css
+.reach-mini-public:hover { background: rgba(26,86,196,.1); }
+  position: absolute;              /* ← ここにセレクタが無い */
+  bottom: -2px; right: -2px;
+  background: #FFB300;
+  color: white;
+  font-size: 8px;
+  font-weight: 700;
+  padding: 1px 4px;
+  border-radius: 6px;
+  border: 1.5px solid white;
+  letter-spacing: .04em;
+  line-height: 1;
+}
+.role-menu { ... }
+```
+
+CSSパーサはセレクタを探して`{`まで読み飛ばそうとするため、**エラー回復の過程で後続のルールを
+巻き込んで捨てる**。実測で`.role-menu`がCSSOM上に存在しないことを確認済み
+(ルール一覧が`.reach-mini-public:hover`から`.role-menu-item`へ飛ぶ):
+
+```js
+[...document.styleSheets].find(s => s.cssRules.length > 100).cssRules
+// → .role-menu が無い
+```
+
+初回コミット`cc3b749 Add files via upload`から存在する。`.role-menu`は無効化済みの
+開発用ロール切替メニュー(`#role-menu`、`setRole('driver')`/`setRole('manager')`。
+`showAdminToggle()`はFirebase認証導入時にコメントアウト済み)のスタイルで、
+要素側に`style="top:50px;right:16px"`のインライン指定もあるため**実害は軽微**。
+
+### v0.4.2での対応手順
+
+1. **飲み込まれている範囲の終端をCSSOMで実測して確定させる。** `.role-menu`が消えていることは
+   確認済みだが、**その後続のルールまで消えていないかは未確認**。範囲を確定してから修正すること
+2. 修正は**宣言ブロックの除去**。孤児ブロックが元々どの要素のものだったか特定を試みる
+   (bottom/right -2px の位置指定、`#FFB300`の琥珀色、8pxの極小フォント、白い縁取り——
+   何かのアイコン右下に重ねる小さなバッジ)。特定できなければ未使用として削除する
+3. `.role-menu`は撤去済み要素のスタイルなので、**ルールがCSSOMに復活しても表示に影響しないことを
+   確認する**こと
+
+### v0.4.2をリリースするまでの暫定の回避策
+
+**`index.html:1039`付近に新しいCSSを追加しないこと。** 追加しても無言で飲まれて効かない。
