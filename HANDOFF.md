@@ -1,4 +1,4 @@
-# 引き継ぎ書(2026-07-30時点)
+# 引き継ぎ書(2026-08-03時点)
 
 新しいセッションで作業を再開する際は、まずこのファイルと [README.md](README.md)・[TECH_DEBT.md](TECH_DEBT.md) を読んでください。
 
@@ -7,16 +7,126 @@
 - **リポジトリ**: `matomete-app`(安全配送まとめてアプリ)。単一ファイルSPA([index.html](index.html)、約8600行)+ Firebase(Firestore/Auth/Storage/**Cloud Functions/FCM**)。
 - **ブランチ運用**: `main`=本番公開中(GitHub Pages、Firebase接続版)、`develop`=開発中。リリース時は`develop`→`main`マージ(手順は[README.md](README.md)参照)。
 - **Firebaseプロジェクト**: `anzen-matomete-app`(Blazeプラン、asia-northeast1)。
-- **アプリバージョン**: **developはv0.4(通知センター、実装完了・マージ待ち)。mainはv0.3.2**(マージコミット`bc6c676`、タグ`v0.3.2`)。
+- **アプリバージョン**: **v0.4.1(developのみ。mainマージ・タグ付けは南野さんが実施)**。
+  本番公開中は引き続き**v0.4**(マージコミット`cf15ad2`、タグ`v0.4`)。
+  **v0.4.1の切り戻し先はv0.4**。ロールバック用タグ`v0.4-pre-badge-fix`を現main先端に作成すること。
+- **v0.4の実機確認は完了済み**(ベル・タブの新着マーク・通知センター・PWA下部の白帯、いずれも問題なし)。
 
-## 最優先の申し送り: v0.4のマージ前に必ず行うこと
+## 次のセッションで最初に確認すること
 
-**`index.html`の`BADGE_EPOCH`(現在は実装日の`2026-07-29T00:00:00+09:00`)を、実際のリリース時刻へ更新すること。**
-定数の直上に同じ注意書きを置いてあります。更新を忘れると、実装日からリリースまでの間に発生した
-出来事が全乗務員に新着として一斉に出ます。特に時刻方式のタブ(チャット・KYT・報告の管理者側)が
-直撃し、全チャンネルが一斉に発光します。
+**v0.4.1の実機確認がまだです。** 実装とブラウザ実測までは完了していますが、
+iOS実機での確認は依頼者(南野さん)が実施する取り決めです。セッション開始時に結果を聞いてください。
 
-## 本セッション: v0.4 通知センター＋各タブの新着マーク(develop、マージ待ち)
+1. 手順書のタイトル・説明を編集 → 保存され、一覧に反映される
+2. 手順書の新規追加・必読設定が引き続き動作する(デグレ確認)
+3. ベル・タブの赤点、周知タブ各行の未読ドットの見え方
+4. 周知タブで未読(青)と必読ピル(赤)が引き続き区別できる
+5. pulseが2回で止まり、その後静止している
+
+**あわせて`--badge-dot-bell`の最終値(10px / 12px)を確定すること。** 現在は10pxを暫定値として
+実装済みで、変更する場合は[index.html](index.html)の`:root`にある同定数1箇所を書き換えるだけで済みます。
+
+問題があれば`v0.4`タグ(または`v0.4-pre-badge-fix`)へ切り戻せます。
+
+### 実機確認が終わったら、間を空けずにv0.4.2へ着手すること
+
+インライン`onclick`に自由入力テキストを埋めている**予備軍3系統4箇所**が未修正です
+(周知タグ・KYT選択肢・班チャンネル名)。調査は完了しており、
+**[TECH_DEBT.md](TECH_DEBT.md)項目12に全量を記録済みなので再調査は不要**です。
+
+**KYT選択肢に`"`が入るとそのシナリオが回答不能になる**ため、恒久的な負債にはしません。
+
+> **⚠️ v0.4.2をリリースするまでの暫定の回避策(2件)**
+>
+> **(1) 運用: 周知タグ・KYT選択肢・班チャンネル名に、ダブルクォート`"`とシングルクォート`'`を使わないこと。**
+> 入力できるのは管理者のみのため運用で回避できます。
+>
+> **(2) 実装: [index.html:1039](index.html:1039)付近に新しいCSSを追加しないこと。**
+> セレクタを失った宣言ブロックがあり、そこから後続のルールが**無言で飲み込まれます**。
+> 追加しても効かないうえ、原因が分からず時間を溶かします。詳細は
+> [TECH_DEBT.md](TECH_DEBT.md)項目14。
+
+## 本セッション: v0.4.1 手順書編集の保存不具合修正・新着ドットの視認性強化(develop)
+
+| commit | 内容 |
+|---|---|
+| `0beac45` | 手順書の編集が無言で保存できない不具合を修正(主バグの根治) |
+| `0dfa295` | 新着ドットの視認性強化(CSS変数へ集約・box-shadowリング化) |
+
+### 改修2: 手順書のタイトル・説明が保存できない(原因確定・修正済み)
+
+当初は「Firestore rulesの`update`未開放」が最有力と想定されていましたが、**3つの前提がいずれも
+誤りであることが実コード調査で判明**しました。切り分けの結論は以下のとおりです。
+
+- **rulesは原因ではない**。[firestore.rules:245](firestore.rules:245)は元から
+  `allow create, delete, update: if isAdmin();`で開放済み。ルールテストにも
+  「adminはmanualsを更新できる」が[test/rules/manuals.test.js:106](test/rules/manuals.test.js:106)に既存
+- **真の原因は`onclick`属性のクォート破壊**。`onclick="saveManEditor(${JSON.stringify(id)})"`が
+  生のダブルクォート付き`"abc123"`を出力して属性値を終端させ、ハンドラがコンパイルされず
+  `btn.onclick === null`になっていた。新規追加時は`id === null`で壊れないため編集時だけ発生
+- インライン`onclick`を廃止し`addEventListener`で結線する方式へ変更(クォート回避は
+  idに引用符が混ざれば再発する対症療法のため採らない)
+
+実ブラウザで、通常のFirestore ID・引用符入りID(`we"ird'id`)・新規追加(`null`)の3パターンとも
+`saveManEditor`が正しい引数で呼ばれることを確認済み。
+
+**`publishedAt`の新設は見送りました。** 「編集すると新着が再点灯する」という前提が誤りで、
+`unreadManuals()`は`createdAt`のみ参照、Cloud Functionも`onDocumentCreated`のため、
+編集しても新着は再点灯しません。判断根拠は[TECH_DEBT.md](TECH_DEBT.md)項目13に記録。
+
+### 改修1: 新着ドットの視認性強化
+
+**点が小さく見えていた原因は、サイズ指定ではなく`box-sizing: border-box`でした。**
+[index.html:81](index.html:81)のグローバル指定により`border`が指定幅の内側に食い込み、
+赤い芯は`.bell-dot`で実測5.3px(指定8px)、`.nav-badge`で約6px(指定9px)まで縮んでいました。
+
+- `:root`に`--badge-dot` / `--badge-dot-bell` / `--badge-ring` / `--badge-color` /
+  `--badge-color-unread`を新設し、個別クラスへの数値直書きをやめた
+- リングを`border`から`box-shadow`へ変更。外側に描画されるため`box-sizing`の影響を受けず、
+  指定値がそのまま芯の直径になり、レイアウトにも影響しない
+- 芯は3箇所とも10px + リング2px(実効14px)。位置指定は実機確認済みの値のまま変更していない
+- 周知タブの未読ドットは[index.html:4448](index.html:4448)のインラインstyleから
+  `.ann-unread-dot`へ切り出し。**色は青(`--primary`)のまま維持**。赤は同じカード内の
+  `.must-read-badge`(必読)が使っており、未読まで赤にすると赤が2つの意味を持つため
+- 出現時に2回だけ脈動する`badge-dot-pulse`を`.bell-dot`と`.nav-badge`に付与(無限ループにしない)。
+  **`.ann-unread-dot`には付けない**——未読が並ぶ一覧では再描画のたびに全行が一斉に脈動するため
+- `prefers-reduced-motion: reduce`で`.bell-dot` / `.nav-badge`のアニメーションを無効化
+
+ブラウザ実測: 芯10px・リング2px・`.ann-unread-dot`の背景が`rgb(26,86,196)`(青)、
+`animation-iteration-count: 2`、`.ann-unread-dot`は`animation-name: none`、
+バッジ有無で`.nav-icon`の寸法が27.47×20で不変(レイアウトずれなし)、ボトムナビ高さ55px据え置き。
+
+### 作業不要と判明した2件(指示に含まれていたが既に対応済みだった)
+
+- **「メール」表記の削除**: 既にv0.3.1(`8fbb403`)で実施済み。現在`index.html`内の「メール」は
+  [index.html:8882](index.html:8882)のコード内コメント1件のみ(Firebase Authの仕様説明)
+- **「この通知への反応」の削除**: 既にv0.3.1(`c9a0eec`)で実施済み。`reactions`の出現数0件
+
+### リリース後の作業: マニュアル3点の追随
+
+早見表の端末図解(①ベルの赤点 ②タブの赤点 ③必読の目印)とドライバー用ガイドの画面レプリカは
+**別ファイルのCSSで組んでいるため自動追随しません**。v0.4.1でドットのサイズが変わるため、
+実物と見た目がずれます。ただし**今回はサイズ拡大のみで意味は変わらない**ため緊急性は低いです。
+
+### 別件で見つけた既存の不具合(v0.4.2で対応)
+
+[index.html:1039](index.html:1039)付近に**セレクタを失ったCSS宣言ブロック**があり、
+パーサのエラー回復が後続の`.role-menu`ルールごと飲み込んでいます(CSSOM上に`.role-menu`が
+存在しないことを実測で確認)。初回コミット`cc3b749`から存在する既存バグです。
+**v0.4.1は検証を終えているため今回は触っていません。** 対応手順は
+[TECH_DEBT.md](TECH_DEBT.md)項目14に記載しています。
+
+### マージ前の確認結果
+
+**`BADGE_EPOCH`は変更していません。** v0.4.1では新着判定ロジックを一切変えていないため、
+これが正です。`git diff v0.4 develop -- index.html`で`BADGE_EPOCH`・`computeBadgeBaseDate`・
+`buildInitialBadgeState`・`isAfterBadgeSince`・`unreadManuals`・`unreadAnnouncements`・
+`unreadKytScenarios`・`getBadgeSeenAt`・`markBadgeSeen`のいずれにも差分が無いことを確認済みです。
+
+v0.4からの`index.html`の変更は、ドットまわりのCSS・`APP_VERSION`・`CHANGELOG`・
+周知一覧の未読ドットのマークアップ・手順書エディタの保存ボタンの5箇所のみです。
+
+## 前セッション: v0.4 通知センター＋各タブの新着マーク(mainへ本公開済み)
 
 設計指示書に基づき5段階に分けて実装しました(段階ごとに commit を分けています)。
 
@@ -26,7 +136,14 @@
 | 2 | `4ddfdf4` | 各タブの未読判定とタブの新着マーク、`users.createdAt`追加 |
 | 3 | `7c26a3d` | ベルの復活と通知センター |
 | 4 | `bfaafa0` | 報告の双方向既読と管理者UI |
-| 5 | (本コミット) | 横断確認・バージョン更新・ドキュメント整備 |
+| 5 | `20d73eb` | 横断確認・バージョン更新・ドキュメント整備 |
+| リリース | `48a4637` → `cf15ad2` | BADGE_EPOCH更新 → mainへ`--no-ff`マージ、タグ`v0.4` |
+
+**`BADGE_EPOCH`は`2026-07-30T03:30:00+09:00`(リリース時刻)に更新済み**です。この定数は
+`state/badges`が未作成のユーザーを初期化するときの足切り値としてのみ使われるため、
+既にログイン済みのユーザーには以後影響しません。
+
+**ルールテストは189件全pass**、`firestore.rules`は本番デプロイ済みです。
 
 ### 中核となる設計原則(改修時に必ず守ること)
 
@@ -77,7 +194,7 @@ v0.3.1でヘッダーのベルと周知タブの新着マークを「機能し�
 
 改定が必要かどうかは、実際の画像と上記の差分を突き合わせてご判断ください。
 
-## 本セッション: v0.3.1 — iOS PWAセーフエリア余白修正・不要UI削除(develop、mainマージ・タグ付けは依頼者が実施)
+## 過去セッション: v0.3.1 — iOS PWAセーフエリア余白修正・不要UI削除
 
 作業指示書に基づき、developブランチ上で作業1〜4を別コミットで実施した。**mainへのマージ・タグ付けは行っていない**(依頼者が実施する取り決めのため)。iOS実機での最終確認も依頼者側で行う。
 
@@ -263,6 +380,9 @@ iPhoneのホーム画面追加(standalone)表示で、`#bottom-nav`(下部タブ
   6. LINE連携は見送り(決定記録)。
   7. チャットの読み取りコスト設計(初回件数是正のみ対応済み、`persistentLocalCache`・90日超アーカイブは未対応)。
   8. **FCMプッシュ通知(v0.3)**: mainマージ済み・Stage1完了(2026-07-25、実機検証済み)・**Stage2適用済み(2026-07-25、`config/notifications.openToAllUsers`をtrueに更新)**。一般ドライバーへのメニュー項目表示は実機での最終確認が未実施(申し送り参照)。ユーザーコード変換規則(`myCode()`相当)がrulesとfunctionsの2箇所にある点も引き続き記録。
+  12. **インライン`onclick`への文字列埋め込み(v0.4.2で対応予定)**: 予備軍3系統4箇所が未修正。調査は完了しており全量を記録済みなので**再調査不要**。暫定の運用回避策は「周知タグ・KYT選択肢・班チャンネル名に`"`と`'`を使わない」。
+  13. v0.4.1で見送った2件(`manuals`の`fileUrl`/`storagePath`ホワイトリスト保護、手順書の`publishedAt`新設)。いずれも見送りの判断根拠付きで記録済み。
+  14. **セレクタを失ったCSS宣言ブロックが後続ルールを飲み込む(v0.4.2で対応予定)**: `index.html:1039`付近。`.role-menu`が消えていることは実測済みだが、飲み込まれている範囲の終端は未確定。暫定の回避策は「同付近に新しいCSSを追加しない」。
 
 ## 開発環境の状態(このマシン固有)
 
@@ -275,7 +395,8 @@ iPhoneのホーム画面追加(standalone)表示で、`#bottom-nav`(下部タブ
   ```
 - **GCP IAM設定済み**: Cloud Storageのセキュリティルールが`firestore.get()`でFirestoreをクロスサービス参照するため、サービスアカウント`service-163103621501@gcp-sa-firebasestorage.iam.gserviceaccount.com`に`roles/datastore.user`を付与済み。これがないとStorageアップロードが`storage/unauthorized`で失敗する。
 - **ローカル動作確認用サーバー**: 必ず`http://localhost:8000/index.html`のようにローカルサーバー経由で開くこと(`.claude/launch.json`の`matomete-app`設定、`python -m http.server 8000`)。**`file://`で直接開くと`<script src>`読み込みに失敗する**(既知の問題)。
-- **VAPID鍵は未設定**: `index.html`の`FCM_VAPID_KEY`定数が空文字のまま。Firebase Console → プロジェクト設定 → Cloud Messaging → ウェブ構成 → 鍵ペアの生成、で取得した公開鍵を設定するまでFCMトークン登録は動作しない(南野さんの作業待ち)。
+- **VAPID鍵は設定済み**: `index.html`の`FCM_VAPID_KEY`定数に南野さんがFirebase Consoleで生成した公開鍵を設定済み(v0.3)。公開鍵のためリポジトリに含めてよい。
+- **ブラウザのスクリーンショットが取得できない場合がある**: Browserペインが非表示だと`computer{action:"screenshot"}`が「not compositing frames」で失敗する。その場合は`javascript_tool`での`getBoundingClientRect()`/`getComputedStyle()`実測と、実物のCSSを転記した比較用HTMLを`SendUserFile`で提出する方法で代替できる(v0.4.1のドット比較で実施)。
 
 ## テスト・デプロイ手順(次回も同じ)
 
@@ -293,7 +414,7 @@ npx firebase-tools deploy --only functions --project anzen-matomete-app
 npx firebase-tools deploy --only storage --project anzen-matomete-app
 ```
 
-現在169件のルールテストが全pass(`test/rules/{users,reports,manuals,storage,kyt,teams,announcements,channels,sessions,tokens,config}.test.js`)。`firestore.rules`/`firestore.indexes.json`・Cloud Functions(8関数)・`index.html`(FCMクライアント実装)ともv0.3としてmainへマージ・本番デプロイ済み。
+現在**189件**のルールテストが全pass(`test/rules/`に12ファイル: `users,reports,manuals,storage,kyt,teams,announcements,channels,sessions,tokens,config,badges`)。`firestore.rules`/`firestore.indexes.json`・Cloud Functions(8関数)・`index.html`ともv0.4としてmainへマージ・本番デプロイ済み。
 
 ## コミット時の運用ルール(このセッションで一貫していた点)
 
@@ -303,15 +424,26 @@ npx firebase-tools deploy --only storage --project anzen-matomete-app
 - 実機テストで本番Firestoreにテストデータを書き込んだ場合は、テスト直後に必ず削除して原状復帰する。**ただし`sessions`コレクションは`allow update, delete: if false`(追記のみ)のため、検証で作成したセッションレコード自体は削除できない**(`users.lastActiveDate`は自己更新可能なため元に戻せる)。
 - **mainへのマージは指示がない限り行わない**。
 - リモートに未取得のコミットがある場合は`git fetch`→`git rebase origin/develop`してからpushする。
-- **作業開始時は必ず`git branch`で`develop`にいることを確認する**。本セッション開始時、前回セッションのv0.2.3マージ後の`git checkout main`から戻し忘れており、`main`ブランチのまま実装を始めてしまっていたことに気づいて`git checkout develop`で移し替えた実績がある(まだ何もコミットしていなかったため実害なし)。
+- **作業開始時は必ず`git branch`で`develop`にいることを確認する**。以前、v0.2.3マージ後の`git checkout main`から戻し忘れ、`main`ブランチのまま実装を始めてしまった実績がある(コミット前に気づき`git checkout develop`で移し替えたため実害なし)。
+- **新しいグローバル関数・定数を定義する前に、必ず全文検索で同名の有無を確認する**(南野さんの指示により毎回適用)。単一ファイル構成のため、既存の同名関数をエラーも警告もなく上書きして別機能を壊す事故が起こり得る(v0.4段階3で`fmtRelativeTime`が実際に発生)。実装後は重複カウントで機械的に検証すること。手順は[TECH_DEBT.md](TECH_DEBT.md)項目11に記載。
+- **共有CSSクラスを変更する前に、必ず全使用箇所を確認する**。枚数など利用側ごとに異なる値はCSS本体ではなく利用側でインライン上書きする(v0.3.1で`.reach-stats`がKYT管理画面を巻き込んだ実績あり。同じくTECH_DEBT.md項目11)。
+- 大きな機能は段階に分けて実装し、**各段階でコミット・報告してから次へ進む**(v0.4は5段階で実施)。段階ごとに実測での検証結果を添えると、仕様の取り違えを早期に発見できる。
 
 ## 次にやるとよさそうなこと(優先度は南野さん判断)
 
-1. **[最優先]** v0.4(通知センター)はdevelopに実装完了・**mainマージとタグ付けは依頼者側で実施する取り決め**。マージ前に必ず:
-   - **`BADGE_EPOCH`を実際のリリース時刻へ更新する**(冒頭の申し送り参照。忘れると全乗務員に新着が一斉に出る)
-   - iOS実機で、ベル・各タブの新着マーク・通知センターの表示と遷移を確認
-   - マニュアル3点の画像が実物と一致するか確認(上記「マニュアルへの影響」参照)
-2. v0.3の残タスク: 一般ドライバーのメニューに「通知設定」が実際に表示されることを実機/実ログインで確認する(Stage2は`config/notifications.openToAllUsers`をtrueに更新済み。メニュー項目のゲート修正`96db84f`はStage1検証より後に入ったため未確認のまま)。問題があれば`config/notifications.openToAllUsers`を`false`に戻すだけでStage0相当に即座に戻せる。
-3. v0.3.1の残タスク: iOS実機でタブバー下の白帯が解消されているか、`#app`の`position:fixed`化による揺れの回帰が無いかを確認(v0.3.2で`status-bar-style`を`default`に変更して対処済み)。
-4. `st.currentUid`依存の残存箇所(モック周知データ・チャット未読・`recalcTeamCounts()`)を`fbUser.code`ベースへ統一(TECH_DEBT.md #1)。
-5. developに他の未反映変更が無いか確認しつつ、次のリリースがあればREADME.mdのリリース手順に従う。
+1. **[最優先]** v0.4.1のiOS実機確認(上記「次のセッションで最初に確認すること」の5項目)と、
+   `--badge-dot-bell`の最終値(10px / 12px)の確定。
+2. **[最優先の次]** v0.4.2。**v0.4.1の実機確認完了後、間を空けずに着手する。** 内容は2件:
+   - インライン`onclick`の予備軍3系統4箇所の修正(TECH_DEBT.md項目12)。KYT選択肢に`"`が入ると
+     そのシナリオが回答不能になるため。調査は完了しているので再調査は不要
+   - セレクタを失ったCSS宣言ブロックの除去(TECH_DEBT.md項目14)
+   - あわせて、実機で必要と判断されれば`--badge-dot-bell`を調整する
+3. リリース後: マニュアル3点の追随(ドットのサイズ変更分。意味は変わらないため緊急性は低い)。
+4. v0.3の残タスク: 一般ドライバーのメニューに「通知設定」が実際に表示されることを実機/実ログインで確認する(Stage2は`config/notifications.openToAllUsers`をtrueに更新済み。メニュー項目のゲート修正`96db84f`はStage1検証より後に入ったため未確認のまま)。問題があれば`config/notifications.openToAllUsers`を`false`に戻すだけでStage0相当に即座に戻せる。
+5. v0.3.1の残タスク: iOS実機でタブバー下の白帯が解消されているか、`#app`の`position:fixed`化による揺れの回帰が無いかを確認(v0.3.2で`status-bar-style`を`default`に変更して対処済み)。
+6. `st.currentUid`依存の残存箇所(モック周知データ・チャット未読・`recalcTeamCounts()`)を`fbUser.code`ベースへ統一(TECH_DEBT.md #1)。
+7. 未実装のまま残っている機能: ゲームタブ(「近日公開」のプレースホルダーのみ)、周知タブの予約配信の
+   自動公開(TECH_DEBT #4)、パスワードのセルフリセット(#3)、メール通知(#5・
+   [docs/メール通知_将来実装メモ.md](docs/メール通知_将来実装メモ.md))。いずれも`functions/`基盤に
+   乗せて実装できる状態です。
+8. 次のリリースがあればREADME.mdのリリース手順に従う。
