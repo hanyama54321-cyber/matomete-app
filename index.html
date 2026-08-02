@@ -4496,7 +4496,7 @@ function renderAnnCard(a, opts={}) {
           <div style="font-size:14px;color:var(--text-sub);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${bodyHtml}</div>
           ${dl ? `<div class="deadline-text ${dl.level}" style="margin-top:6px"><span>⏱️</span>${dl.text}</div>` : ''}
           ${(a.tags||[]).length ? `<div style="display:flex;gap:5px;margin-top:8px;flex-wrap:wrap">
-            ${a.tags.map(t => `<button class="tag-pill${st.annTagFilter===t?' active':''}" onclick="event.stopPropagation();setTagFilter('${t.replace(/'/g,"\\'")}')">${t}</button>`).join('')}
+            ${a.tags.map(t => `<button class="tag-pill${st.annTagFilter===t?' active':''}" data-ann-tag="${escHtml(t)}">${escHtml(t)}</button>`).join('')}
           </div>` : ''}
         </div>
         <div style="font-size:12px;color:var(--text-muted);white-space:nowrap">${annTimeLabel(a)}</div>
@@ -4654,6 +4654,12 @@ function renderAnn() {
   }
 
   document.getElementById('ann-list').innerHTML = html;
+  // タグは自由入力のため、値はdata-*属性に退避してここで結線する(理由はbindDataClick参照)。
+  // カード側のonclick="showAnn(...)"が先に発火しないようstopPropagationが要る
+  bindDataClick(document.getElementById('ann-list'), 'data-ann-tag', (tag, ev) => {
+    ev.stopPropagation();
+    setTagFilter(tag);
+  });
 }
 
 // 既読セクションの開閉
@@ -4816,7 +4822,7 @@ function renderAnnDetailBody(id) {
   // タグ表示（タップでスレッドへ）
   const tagsBlock = (a.tags && a.tags.length > 0) ? `
     <div style="display:flex;gap:5px;margin-top:10px;flex-wrap:wrap">
-      ${a.tags.map(t => `<button class="tag-pill" onclick="goToTagThread('${t.replace(/'/g,"\\'")}')">${t}</button>`).join('')}
+      ${a.tags.map(t => `<button class="tag-pill" data-ann-thread-tag="${escHtml(t)}">${escHtml(t)}</button>`).join('')}
     </div>
   ` : '';
 
@@ -4908,6 +4914,8 @@ function renderAnnDetailBody(id) {
       `}
       ${relatedBlock}
     </div>`;
+  // 一覧側とは遷移先が違う(詳細を閉じてからフィルタ)ため属性名を分けている
+  bindDataClick(document.getElementById('ann-detail'), 'data-ann-thread-tag', tag => goToTagThread(tag));
 }
 
 // 詳細画面で開いているお知らせのreadsサブコレクションを購読する(実データのみ)
@@ -5842,6 +5850,27 @@ async function exportAnnCsv(id) {
 }
 
 // HTML エスケープ（XSS防止）
+/* data-*属性に退避した値でクリックハンドラを結線する(v0.4.2)。
+
+   インラインonclickに値をJS文字列として埋めると、値に引用符が含まれた時点で
+   属性値がそこで終端し、ハンドラがコンパイルされないまま「エラーも出ずに無反応」になる。
+   escHtml()はこの用途では効かない(むしろ逆効果): &quot;/&#39;は属性のパース時に
+   生の"/'へデコードされ、その後でJS層に渡るため。詳細はTECH_DEBT.md項目12。
+
+   data-*属性ならJS層を経由せず、デコード後の生の文字列がそのまま取り出せるので、
+   引用符を含んでも壊れない。呼び出しはinnerHTML代入と同じ関数内の直後に置くこと
+   (再描画のたびに張り直され、張り忘れが起きにくい)。
+
+   イベント委譲(祖先コンテナに1つだけ張る)は使わない。周知一覧のタグは
+   カード側のonclick="showAnn(...)"より内側にあり、委譲だとカードのinline onclickが
+   先に発火して詳細画面が開いてしまうため、要素へ直接バインドする。 */
+function bindDataClick(root, attr, handler) {
+  if (!root) return;
+  root.querySelectorAll('[' + attr + ']').forEach(el => {
+    el.addEventListener('click', ev => handler(el.getAttribute(attr), ev, el));
+  });
+}
+
 function escHtml(s) {
   if (s == null) return '';
   return String(s)
@@ -6059,9 +6088,11 @@ function renderChannelChips() {
     const isUnread = unreadIds.has(c.id) && c.id !== currentChannel;
     return `
     <button class="chip${c.id === currentChannel ? ' active' : ''}${isOwn ? ' chip-own' : ''}${isUnread ? ' chip-unread' : ''}"
-      onclick="switchCh('${c.id}','${escHtml(c.label)}')"># ${escHtml(c.label)}${isOwn ? ' 🏠' : ''}</button>
+      data-ch-id="${escHtml(c.id)}" data-ch-label="${escHtml(c.label)}"># ${escHtml(c.label)}${isOwn ? ' 🏠' : ''}</button>
   `;
   }).join('');
+  // 班名は班編成管理で編集できる自由入力のため、値はdata-*属性に退避して結線する
+  bindDataClick(host, 'data-ch-id', (id, ev, el) => switchCh(id, el.getAttribute('data-ch-label')));
 }
 
 // メッセージ数等の統計（管理者ヘッダー上部のカード）
@@ -7075,7 +7106,7 @@ function drawKYTQuiz() {
     const cbCls = 'kyt-cb'+(sel?' on':'');
     const lbl = done ? (correct?`<span style="margin-left:auto;color:var(--safe);font-size:12px;font-weight:700">✓ 正解</span>`
       : sel?`<span style="margin-left:auto;color:var(--danger);font-size:12px;font-weight:700">✗</span>`:'') : '';
-    const click = done ? '' : `onclick="toggleKYT('${opt.replace(/'/g,"\\'")}' )"`;
+    const click = done ? '' : `data-kyt-opt="${escHtml(opt)}"`;
     return `<div class="${cls}" ${click}>
       <span class="${cbCls}">${sel?'✓':''}</span>
       <span style="flex:1">${escHtml(opt)}</span>${lbl}
@@ -7113,6 +7144,9 @@ function drawKYTQuiz() {
       ${optsHtml}
       ${foot}
     </div>`;
+  // 選択肢は管理者の自由入力のため、値はdata-*属性に退避して結線する。
+  // 採点後(done)はdata属性自体を出さないので、結線されず選択できないままになる
+  bindDataClick(document.getElementById('kyt-quiz'), 'data-kyt-opt', opt => toggleKYT(opt));
 }
 
 function toggleKYT(opt) {
