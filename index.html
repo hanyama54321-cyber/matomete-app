@@ -6565,12 +6565,19 @@ function openManEditor(id) {
       </div>
       <div class="modal-footer">
         <button class="btn btn-ghost" style="flex:1" onclick="closeModal()">キャンセル</button>
-        <button id="man-ed-save-btn" class="btn btn-primary" style="flex:2" onclick="saveManEditor(${JSON.stringify(id)})">
+        <button id="man-ed-save-btn" class="btn btn-primary" style="flex:2">
           ${isEdit ? '変更を保存' : '追加する'}
         </button>
       </div>
     </div>
   `);
+
+  // 保存ボタンはインラインonclickではなくイベントリスナーで結線する。
+  // 属性にidを文字列として埋めると、idに引用符が含まれた時点で属性値が終端して
+  // ハンドラがコンパイルされず、エラーも出ないままボタンが無反応になるため
+  // (実データのidを渡す編集モードで実際に発生していた)。
+  document.getElementById('man-ed-save-btn')
+    .addEventListener('click', () => saveManEditor(id));
 
   // 状態保持
   st.manEdState = {
