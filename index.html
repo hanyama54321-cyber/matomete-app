@@ -75,6 +75,16 @@ const FCM_VAPID_KEY = 'BCd2jTEyxVABwbdktFURmnKhXr0gSvIYxI0rorVPMGcko6gW6zHx_W67Z
   --text-sub: #5F6E85;
   --text-muted: #9AA7BA;
   --grad: linear-gradient(135deg, #0D3D9E 0%, #1A56C4 45%, #3F8CEF 100%);
+
+  /* 新着・未読ドット(v0.4.1)。個別のクラスに数値を直書きせずここへ集約する。
+     色は「新着=赤」「未読=青」で使い分ける: 周知タブには赤い必読ピル(.must-read-badge)が
+     あるため、未読まで赤にすると赤が「未読」と「必読」の2つの意味を持ち、
+     ドライバーが必ず読むべきものを見分けにくくなる。 */
+  --badge-dot: 10px;                    /* タブの新着マーク・周知タブ各行の未読ドット */
+  --badge-dot-bell: 10px;               /* ヘッダーのベル */
+  --badge-ring: 2px;                    /* 背景色で縁取るリングの太さ */
+  --badge-color: #FF3B30;               /* 新着(赤) */
+  --badge-color-unread: var(--primary); /* 未読(青) */
 }
 
 /* ===== リセット ===== */
@@ -147,13 +157,30 @@ header {
   display: flex; align-items: center; justify-content: center;
   font-size: 16px;
 }
+/* ドットの出現時に2回だけ脈動させる。無限ループは通知疲れとバッテリー消費につながるため使わない。
+   ゲームタブの pulse-badge とは別物なので名前を明確に分けている(あちらは無限ループ)。
+   付けるのは画面上に1つずつしか出ない .bell-dot と .nav-badge のみ。
+   周知タブの .ann-unread-dot に付けると、未読が並ぶ一覧で再描画のたびに全行が
+   一斉に脈動して常時ざわつくため対象外とする。 */
+@keyframes badge-dot-pulse {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.25); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bell-dot, .nav-badge { animation: none; }
+}
 .bell-dot {
   position: absolute;
   top: 2px; right: 2px;
-  width: 8px; height: 8px;
+  width: var(--badge-dot-bell); height: var(--badge-dot-bell);
   border-radius: 50%;
-  background: var(--danger);
-  border: 1.5px solid white;
+  background: var(--badge-color);
+  /* リングはborderではなくbox-shadowで描く。全要素が box-sizing:border-box のため、
+     borderだと指定幅の内側に食い込み、赤い芯が実測5.3pxまで縮んでいた。
+     box-shadowは要素の外側に描画されるので、指定値がそのまま芯の直径になり、
+     レイアウトにも影響しない。祖先に overflow:hidden が無いことは確認済み。 */
+  box-shadow: 0 0 0 var(--badge-ring) var(--surface);
+  animation: badge-dot-pulse .6s ease-in-out 2;
 }
 /* 通知センターの行(v0.4)。専用クラスのみで構成し、既存の共有クラスは使わない */
 .notif-row {
@@ -249,10 +276,11 @@ header {
 .nav-badge {
   position: absolute;
   top: -3px; right: -7px;
-  width: 9px; height: 9px;
+  width: var(--badge-dot); height: var(--badge-dot);
   border-radius: 50%;
-  background: var(--danger);
-  border: 1.5px solid var(--surface);
+  background: var(--badge-color);
+  box-shadow: 0 0 0 var(--badge-ring) var(--surface);   /* 理由は .bell-dot 参照 */
+  animation: badge-dot-pulse .6s ease-in-out 2;
 }
 /* チャンネルチップの新着表示(v0.4)。色( danger 系 )に加えて
    先頭の●と太字を併用し、色だけに頼らず判別できるようにする */
@@ -390,6 +418,18 @@ header {
 }
 .ann-item.pinned { border-left: 3px solid var(--primary); }
 .ann-item.read { opacity: .72; }
+/* 周知一覧の未読ドット(v0.4.1でインラインstyleから切り出し)。
+   サイズとリングは .bell-dot / .nav-badge と共通変数を参照するが、色は青のまま。
+   赤は同じカード内の .must-read-badge(必読)が使っているため意味を衝突させない。
+   pulseは付けない(理由は badge-dot-pulse のコメント参照)。 */
+.ann-unread-dot {
+  display: inline-block;
+  flex-shrink: 0;
+  width: var(--badge-dot); height: var(--badge-dot);
+  border-radius: 50%;
+  background: var(--badge-color-unread);
+  box-shadow: 0 0 0 var(--badge-ring) var(--surface);
+}
 
 /* ===== チャット ===== */
 .chat-wrap {
@@ -4445,7 +4485,7 @@ function renderAnnCard(a, opts={}) {
             ${a.pinned ? mkTag('📌','var(--primary)') : ''}
             ${a.mustRead ? '<span class="must-read-badge">✋ 必読</span>' : ''}
             ${isScheduled ? `<span class="scheduled-badge">⏰ ${fmtSchedDate(a.scheduledAt)} 配信予定</span>` : ''}
-            ${!isRead && !isManager && !isScheduled && !mustPending ? '<span style="width:8px;height:8px;border-radius:50%;background:var(--primary);display:inline-block;flex-shrink:0"></span>' : ''}
+            ${!isRead && !isManager && !isScheduled && !mustPending ? '<span class="ann-unread-dot" aria-label="未読"></span>' : ''}
             ${mkTag(cat.label, cat.color)}
             ${isManager && a.priority==='high' ? mkTag('🔴 重要','var(--danger)') : ''}
             ${isManager ? mkTag('対象: '+team.label, 'var(--text-sub)') : ''}
