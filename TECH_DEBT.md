@@ -138,3 +138,83 @@ v0.3.1で、周知の統計カードが3枚→2枚になったのに合わせて
 利用側ごとに異なる値は、CSS本体ではなく**利用側でインライン指定して上書きする**
 (`.reach-stats`は既定3列のままとし、お知らせ側だけ`style="grid-template-columns:repeat(2,1fr)"`
 で2列にしている)。
+
+**(3) インライン`onclick`に埋めた文字列でハンドラが静かに死ぬ**
+同じ「エラーも警告も出ないまま壊れる」系統の3例目。v0.4.1で実際にバグとして表面化した。
+詳細と未対応分は**項目12**に分離して記載する。
+
+## 12. インライン`onclick`への文字列埋め込みでハンドラが静かに死ぬ(v0.4.2で対応予定)
+
+### 事故パターン
+
+値をJS文字列としてHTML属性に埋めると、**値に引用符が含まれた時点で属性値がそこで終端し**、
+残りが迷子の属性になる。結果ハンドラはJSとして構文エラーになりコンパイルされず、
+`el.onclick === null` となって**エラーも出ないままボタンが無反応になる**。
+`escHtml()`はこの文脈では効かない(むしろ逆効果)。`&quot;`/`&#39;`は属性のパース時に
+生の`"`/`'`へデコードされ、その後でJS層に渡るため。
+
+### v0.4.1で修正済み(主バグ)
+
+`openManEditor()`の保存ボタンが`onclick="saveManEditor(${JSON.stringify(id)})"`だったため、
+`JSON.stringify('abc123')`が生のダブルクォート付き`"abc123"`を出力して属性を破壊していた。
+**手順書のタイトル・説明を編集しても無言で保存できない**という症状で表面化。
+新規追加時は`id === null`→`null`(クォートなし)のため壊れず、編集時だけ発生していた。
+インライン`onclick`を廃止し`addEventListener`で結線する方式へ変更済み。
+
+### 未対応(v0.4.2で対応する)
+
+インライン`onclick`に文字列引数をテンプレートリテラルで埋めている箇所を**全56種洗い出し済み**。
+大半はFirestore自動ID・乗務員コード・固定配列(`manualCategories`等)で引用符が入り得ず安全。
+**自由入力テキストを埋めている3系統4箇所が予備軍**で、実ブラウザで壊れることを確認済み
+(いずれも`typeof el.onclick !== 'function'`になる):
+
+| 箇所 | 値の出所 | 実測した壊れ方 |
+|---|---|---|
+| `index.html:4458` `setTagFilter` / `4778` `goToTagThread` | 周知タグ(`#ed-tag-input`の自由入力) | `'`はエスケープ済みだが`"`が未処理 → 属性が切れる(主バグと同型) |
+| `index.html:7030` `toggleKYT` | KYT選択肢(管理者の自由入力) | 同上。選択肢に`"`があると**そのシナリオが回答不能**になる |
+| `index.html:6021` `switchCh` | 班チャンネル表示名(班編成管理で編集可) | `escHtml`の`&#39;`が属性デコードで`'`に戻りJS文字列を破壊 |
+
+→ **修正方針**: 値を`data-*`属性に`escHtml()`で入れ、innerHTML代入直後にその場で
+`addEventListener`を張る(`data-ann-tag`/`data-kyt-opt`/`data-ch-id`・`data-ch-label`、
+いずれも既存使用なしを確認済み)。`data-*`属性ならJS層を経由しないため、パーサがデコードした
+生の文字列がそのまま`dataset`に入り、引用符を含んでも壊れない。
+
+**イベント委譲ではなく要素への直接バインドにすること。** 周知一覧のタグはカード側の
+`onclick="showAnn(...)"`より内側にあり`e.stopPropagation()`が必要で、委譲にすると
+カードのinline onclickが先に発火して詳細画面が開いてしまう。
+
+触る関数: `renderAnn()` / `renderAnnDetailBody()` / `drawKYTQuiz()` / `renderChannelChips()`
+
+`insertCannedReply`(`index.html:7876`)も同型だが、値が`REPLY_CANNED_PHRASES`
+(`index.html:2898`)のソース直書き定数で引用符を含まないため対象外。
+
+**v0.4.1の実機確認完了後、間を空けずに着手すること。** KYT選択肢の実害が大きいため
+恒久的な負債にはしない。それまでの暫定の運用回避策は
+**「周知タグ・KYT選択肢・班チャンネル名に`"`と`'`を使わない」**(HANDOFF.mdにも記載)。
+
+## 13. v0.4.1で検討し、見送った2件
+
+### (a) `manuals`の`fileUrl`/`storagePath`のホワイトリスト保護
+
+`firestore.rules:245`は`allow create, delete, update: if isAdmin();`で、adminはファイル本体を
+指すフィールドも書き換えられる。ただし**admin限定であり、削除→再作成も可能である以上、
+実効的な防御にはならない**ため見送った。
+
+実施する場合のキー範囲(編集モーダルが実際に書き込む7フィールド + `saveManMustRead()`):
+`title, description, category, icon, mustRead, readDeadline, updatedAt`。
+**`title`/`description`/`updatedAt`の3キーだけに絞ると、編集モーダル(`index.html:6648`)と
+`saveManMustRead()`(`index.html:6446`)の両方が`permission-denied`になる**ので注意。
+
+### (b) 手順書の`publishedAt`新設
+
+「編集すると新着として再通知されてしまう」ことを前提に検討したが、**この前提が誤りだった**。
+
+- `unreadManuals()`(`index.html:3370`)は`m.createdAt`のみ参照。`updatedAt`は不使用
+- Cloud Functionは`onDocumentCreated`のため、編集ではプッシュも飛ばない
+- → **編集しても新着は再点灯しない。「静かに反映」は現行実装で既に満たされている**
+
+よって`publishedAt`は挙動を一切変えない構造分離のみとなり、データモデル追加＋全件バックフィルを
+パッチリリースに含める理由がないと判断した。周知側に`publishedAt || createdAt`のフォールバック
+前例がある(`index.html:4541`)ため、将来「この編集は新着として知らせる」を選択制にしたく
+なった時点で同じパターンで追加すればよい。**後から入れるコストが低いことが分かったので今は入れない**、
+という判断。

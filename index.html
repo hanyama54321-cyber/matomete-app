@@ -2628,7 +2628,7 @@ header {
 // ヘッダーバッジ・ユーザーメニュー・アプリ情報画面・利用状況計測(sessions.appVersion)は
 // すべてこの定数を参照する(#version-badge/#um-version-subtitleへは初期化処理でJSから反映、
 // アプリ情報画面・recordSession()は関数内で直接参照)
-const APP_VERSION = '0.4';
+const APP_VERSION = '0.4.1';
 
 /* ===== データ ===== */
 
@@ -4173,6 +4173,7 @@ async function saveNotifPrefs() {
 
 // 更新履歴。git履歴・HANDOFF.md・TECH_DEBT.mdから裏の取れる範囲で記録する(過去分を遡って捏造しない)
 const CHANGELOG = [
+  { version: '0.4.1', items: ['手順書のタイトル・説明が保存できない不具合を修正', '新着・未読の点を大きくし、縁取りを追加'] },
   { version: '0.4', items: ['通知センターを追加(ヘッダーのベル)', '各タブに新着マークを追加', '報告の回答に既読を追加(投稿者・管理者の双方向)'] },
   { version: '0.3.2', items: ['iOS PWA standalone表示の白帯を解消(ステータスバー設定を変更)', '診断オーバーレイを追加(バージョン表記を3回タップ)'] },
   { version: '0.3.1', items: ['iOS PWA standalone表示のタブバー下白帯を修正', '周知の「反応」機能(未接続)を削除', '通知ベル・固定バッジ等の未実装表示を撤去'] },
