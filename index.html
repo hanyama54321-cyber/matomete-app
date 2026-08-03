@@ -81,7 +81,7 @@ const FCM_VAPID_KEY = 'BCd2jTEyxVABwbdktFURmnKhXr0gSvIYxI0rorVPMGcko6gW6zHx_W67Z
      あるため、未読まで赤にすると赤が「未読」と「必読」の2つの意味を持ち、
      ドライバーが必ず読むべきものを見分けにくくなる。 */
   --badge-dot: 10px;                    /* タブの新着マーク・周知タブ各行の未読ドット */
-  --badge-dot-bell: 10px;               /* ヘッダーのベル */
+  --badge-dot-bell: 12px;               /* ヘッダーのベル。実機確認の結果10px→12pxへ(v0.4.2) */
   --badge-ring: 2px;                    /* 背景色で縁取るリングの太さ */
   --badge-color: #FF3B30;               /* 新着(赤) */
   --badge-color-unread: var(--primary); /* 未読(青) */
@@ -4161,7 +4161,7 @@ async function saveNotifPrefs() {
 
 // 更新履歴。git履歴・HANDOFF.md・TECH_DEBT.mdから裏の取れる範囲で記録する(過去分を遡って捏造しない)
 const CHANGELOG = [
-  { version: '0.4.2', items: ['タグ・KYTの選択肢・班名に引用符が含まれると反応しなくなる不具合を修正', '未使用のスタイル定義を整理'] },
+  { version: '0.4.2', items: ['タグ・KYTの選択肢・班名に引用符が含まれると反応しなくなる不具合を修正', 'タグ名・KYTの選択肢に < や & が含まれるときの表示崩れを修正', 'ヘッダーのベルの点をさらに大きく調整', '未使用のスタイル定義を整理'] },
   { version: '0.4.1', items: ['手順書のタイトル・説明が保存できない不具合を修正', '新着・未読の点を大きくし、縁取りを追加'] },
   { version: '0.4', items: ['通知センターを追加(ヘッダーのベル)', '各タブに新着マークを追加', '報告の回答に既読を追加(投稿者・管理者の双方向)'] },
   { version: '0.3.2', items: ['iOS PWA standalone表示の白帯を解消(ステータスバー設定を変更)', '診断オーバーレイを追加(バージョン表記を3回タップ)'] },
