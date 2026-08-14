@@ -486,6 +486,18 @@ header {
 }
 .msg-time { font-size: 11px; color: var(--text-muted); margin-top: 3px; }
 .msg-time.me { text-align: right; }
+/* 日付セパレータ（v0.4.3）
+   .chat-messages は flex column のため、この要素自体が1つのフレックスアイテムとして行になる。
+   position:sticky は使わない（iOS standaloneでネストスクロール内の固定要素が揺れた前例があるため） */
+.chat-date-sep { text-align: center; margin: 2px 0; }
+.chat-date-sep span {
+  display: inline-block;
+  padding: 3px 12px;
+  border-radius: 999px;
+  background: var(--surface2);
+  color: var(--text-sub);
+  font-size: 11px; font-weight: 700; letter-spacing: .04em;
+}
 
 /* ===== マニュアル ===== */
 .manuals-grid {
@@ -5928,14 +5940,52 @@ function fmtMsgTime(ts) {
   return d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0');
 }
 
+// Date を端末ローカルのカレンダー日 "YYYY-MM-DD" に変換する（日付セパレータの比較キー）
+// jstDateStr() とは別物: あちらは計測用に Asia/Tokyo 固定、こちらは時刻表示(fmtMsgTime)と
+// 基準を揃えるため端末ローカル。混ぜると「12:00 のメッセージなのに昨日」といったズレが出る
+function chatDayKeyFromDate(d) {
+  return d.getFullYear() + '-'
+    + String(d.getMonth() + 1).padStart(2, '0') + '-'
+    + String(d.getDate()).padStart(2, '0');
+}
+
+// メッセージのcreatedAt(Firestore Timestamp)から日付キーを返す
+// サーバー確定前(pending write)はnullで返ってくる。端末時計で日付を先読みせず null を返し、
+// 呼び出し側でセパレータを抑止する（サーバー確定後の再描画で正しい位置に入る）
+function chatDateKey(ts) {
+  if (!ts || typeof ts.toDate !== 'function') return null;
+  return chatDayKeyFromDate(ts.toDate());
+}
+
+// 日付セパレータのラベル: 今日 / 昨日 / 8月1日(金) / 年が違えば 2025年12月31日(水)
+function fmtChatDateLabel(ts) {
+  if (!ts || typeof ts.toDate !== 'function') return '';
+  const d = ts.toDate();
+  const now = new Date();
+  const key = chatDayKeyFromDate(d);
+  if (key === chatDayKeyFromDate(now)) return '今日';
+  const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+  if (key === chatDayKeyFromDate(yesterday)) return '昨日';
+  const md = `${d.getMonth() + 1}月${d.getDate()}日(${['日','月','火','水','木','金','土'][d.getDay()]})`;
+  return d.getFullYear() === now.getFullYear() ? md : `${d.getFullYear()}年${md}`;
+}
+
 function renderChat() {
   const isManager = st.role === 'manager';
   const myUid = fbUser ? fbUser.code : null;
+  let lastDayKey = null; // 直前に日付セパレータを出した日（チャンネル先頭は必ず出す）
   document.getElementById('chat-msgs').innerHTML = chatMessages.map(m => {
     const isMe = m.senderUid === myUid;
     const isAdminMsg = m.senderRole === 'admin';
     const canDelete = isManager && !isMe && !m.deleted;
-    return `
+    // createdAt未確定の間はセパレータを出さず、基準日も進めない（進めると確定後に重複して出る）
+    const dayKey = chatDateKey(m.createdAt);
+    let sep = '';
+    if (dayKey && dayKey !== lastDayKey) {
+      sep = `<div class="chat-date-sep"><span>${escHtml(fmtChatDateLabel(m.createdAt))}</span></div>`;
+      lastDayKey = dayKey;
+    }
+    return `${sep}
     <div class="msg-row${isMe?' me':''}" data-mid="${m.id}">
       ${!isMe ? `<div class="msg-av" style="background:${isAdminMsg?'linear-gradient(135deg,#0D3D9E,#3F8CEF)':'#5B8FE0'}">${(m.senderName||'?')[0]}</div>` : ''}
       <div class="msg-wrap">
