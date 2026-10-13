@@ -2717,137 +2717,6 @@ const annCategories = [
   { id:'other',   label:'その他', color:'var(--text-sub)' },
 ];
 
-// お知らせ 初期表示用モックデータ(id は数値。実データ(Firestore, id=文字列)と混在表示し、
-// 編集・削除は不可の読み取り専用アセットとして維持する。既読操作は
-// 従来どおりローカル配列のmutateのみで完結し、Firestoreへは書き込まない)
-const MOCK_ANNOUNCEMENTS = [
-  {
-    id:1,
-    from:"本部・安全管理部",
-    title:"【重要】夏季の熱中症対策ガイドライン改定",
-    body:"気温35℃超の際は必ず中間休憩を取得すること。スポーツドリンク支給ボックスを各拠点に設置済み。",
-    category:'safety',
-    priority:'high',
-    target:'all',
-    pinned:true,
-    mustRead:true,                       // 必読フラグ
-    readDeadline:'2026-06-25 23:59',     // 既読期限
-    tags:['熱中症','夏季','安全'],
-    time:"10分前",
-    createdAt:'2026-06-19 09:50',
-    publishedAt:'2026-06-19 09:50',
-    scheduledAt:null,
-    status:'published',
-    readBy:['u02','u05','u07'],
-    ackedBy:['u02','u05'],               // 「読みました」を押したユーザー
-    read:false,
-  },
-  {
-    id:2,
-    from:"配送センター長・田中",
-    title:"6月シフト確認のお願い",
-    body:"6月分のシフト希望を今週金曜までに提出してください。遅れた場合は自動割当となります。",
-    category:'work',
-    priority:'normal',
-    target:'all',
-    pinned:false,
-    mustRead:false,
-    readDeadline:null,
-    tags:['シフト','6月'],
-    time:"2時間前",
-    createdAt:'2026-06-19 08:00',
-    publishedAt:'2026-06-19 08:00',
-    scheduledAt:null,
-    status:'published',
-    readBy:['u02','u03','u05','u06','u07'],
-    ackedBy:[],
-    read:false,
-  },
-  {
-    id:3,
-    from:"本部・人事部",
-    title:"社内表彰制度 推薦受付開始",
-    body:"今期の模範配送員推薦を受け付けています。各チームリーダーは候補者を提出のこと。",
-    category:'hr',
-    priority:'low',
-    target:'team_d',
-    pinned:false,
-    mustRead:false,
-    readDeadline:null,
-    tags:['人事','表彰'],
-    time:"昨日",
-    createdAt:'2026-06-18 14:30',
-    publishedAt:'2026-06-18 14:30',
-    scheduledAt:null,
-    status:'published',
-    readBy:['u01','u02','u05','u07'],
-    ackedBy:[],
-    read:true,
-  },
-  {
-    id:4,
-    from:"配送センター長・田中",
-    title:"【予約配信】明日朝の朝礼スケジュール",
-    body:"明日 6/21（日）の朝礼は通常通り 8:00 開始です。\n夏季シフトの説明があるため、全員参加でお願いします。",
-    category:'work',
-    priority:'normal',
-    target:'all',
-    pinned:false,
-    mustRead:false,
-    readDeadline:null,
-    tags:['朝礼'],
-    time:"配信予定",
-    createdAt:'2026-06-20 06:30',
-    publishedAt:null,
-    scheduledAt:'2026-06-21 07:00',
-    status:'scheduled',
-    readBy:[],
-    ackedBy:[],
-    read:false,
-  },
-  {
-    id:5,
-    from:"配送センター長・田中",
-    title:"5月シフト 確定のお知らせ",
-    body:"5月分のシフトを確定しました。各自カレンダーから確認してください。",
-    category:'work',
-    priority:'low',
-    target:'all',
-    pinned:false,
-    mustRead:false,
-    readDeadline:null,
-    tags:['シフト','5月'],                 // ↑ID 2 と同じ 'シフト' タグでスレッド化
-    time:"3週間前",
-    createdAt:'2026-05-28 17:00',
-    publishedAt:'2026-05-28 17:00',
-    scheduledAt:null,
-    status:'published',
-    readBy:['u01','u02','u03','u04','u05','u06','u07','u08'],
-    ackedBy:[],
-    read:true,
-  },
-  {
-    id:6,
-    from:"本部・安全管理部",
-    title:"水分補給・休憩の徹底について",
-    body:"梅雨明け前ですが日中の気温上昇が著しいため、こまめな水分補給を徹底してください。",
-    category:'safety',
-    priority:'normal',
-    target:'all',
-    pinned:false,
-    mustRead:false,
-    readDeadline:null,
-    tags:['熱中症','夏季'],                  // ↑ID 1 と同じタグでスレッド化
-    time:"5日前",
-    createdAt:'2026-06-15 11:00',
-    publishedAt:'2026-06-15 11:00',
-    scheduledAt:null,
-    status:'published',
-    readBy:['u01','u02','u03','u05','u06','u07'],
-    ackedBy:[],
-    read:true,
-  },
-];
 
 /* ===== 周知(お知らせ) =====
    Firestore スキーマ:
@@ -2856,12 +2725,11 @@ const MOCK_ANNOUNCEMENTS = [
                                      createdAt/updatedAt/publishedAt)
      - announcements/{id}/reads/{code} …既読・必読確認記録(本人のみ作成・更新可)
    announcements はログイン時に attachAnnouncementsListener() で全件onSnapshotし、
-   MOCK_ANNOUNCEMENTS(id=数値、読み取り専用の初期表示アセット)と連結したものを保持する。
-   id の型で実データ(文字列)/モック(数値)を判別し、操作系関数(既読・編集・削除等)を出し分ける。
+   Firestoreの実データのみを保持する(v0.4.4でv0.1モック時代の初期表示コンテンツ6件を撤去)。
    予約配信(status:'scheduled')の実データは一般ユーザーには一覧・詳細とも非表示にする(rules上は
    読めるが、クライアント側の描画で制御する)。自動公開(scheduledAt到来時のCloud Functions等)は
    実装せず、公開は管理者の「今すぐ配信」操作のみで行う。 */
-let announcements = [...MOCK_ANNOUNCEMENTS]; // Firestoreミラー + モックの連結後配列
+let announcements = [];                      // announcementsコレクションの読み取り専用ミラー
 let announcementsUnsub = null;               // announcementsコレクションリスナーのunsubscribe
 let annReadsUnsub = null;                    // 詳細画面で開いているお知らせのreadsリスナーのunsubscribe
 let annCurrentReads = {};                    // 詳細画面で購読中のreads一覧 { [code]: {code,name,readAt,acked,ackedAt} }
@@ -6246,16 +6114,15 @@ function renderChatTab() {
 // ログイン時(全ロール共通)に開始する manuals 全件リスナー。ドライバー・管理者どちらの
 // 一覧表示もこの1本のミラーを共有する(reportsの管理者専用リスナーとは異なる設計)。
 // ログイン時に開始し、全ロール共通でannouncements(実データ)を購読する。
-// MOCK_ANNOUNCEMENTS(初期表示コンテンツ)と連結してannouncements配列を再構築する。
+// スナップショットの内容でannouncements配列を丸ごと置き換える。
 function attachAnnouncementsListener() {
   if (announcementsUnsub) { announcementsUnsub(); announcementsUnsub = null; }
   announcementsUnsub = fbDb.collection('announcements').orderBy('createdAt', 'desc')
     .onSnapshot(snap => {
-      const real = snap.docs.map(d => {
+      announcements = snap.docs.map(d => {
         const data = d.data();
         return { id: d.id, ...data, from: data.authorName || '管理者' };
       });
-      announcements = [...real, ...MOCK_ANNOUNCEMENTS];
 
       const tabEl = document.getElementById('tab-announcements');
       const isActive = tabEl && tabEl.classList.contains('active');
@@ -8482,10 +8349,10 @@ function showLoginScreen() {
   // teams関連のリスナーも同様に必ずdetach(teams配列自体はフォールバック値のまま保持してよい)
   if (teamsUnsub) { teamsUnsub(); teamsUnsub = null; }
   teamsLoaded = false;
-  // announcements関連のリスナー・キャッシュも同様に必ずdetach/クリア(MOCK_ANNOUNCEMENTSは維持)
+  // announcements関連のリスナー・キャッシュも同様に必ずdetach/クリア
   if (announcementsUnsub) { announcementsUnsub(); announcementsUnsub = null; }
   if (annReadsUnsub) { annReadsUnsub(); annReadsUnsub = null; }
-  announcements = [...MOCK_ANNOUNCEMENTS];
+  announcements = [];
   annCurrentReads = {};
   annAllDrivers = [];
   annReachCache = {};
