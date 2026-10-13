@@ -4,7 +4,7 @@
 
 ## プロジェクト概要
 
-- **リポジトリ**: `matomete-app`(安全配送まとめてアプリ)。単一ファイルSPA([index.html](index.html)、約8600行)+ Firebase(Firestore/Auth/Storage/**Cloud Functions/FCM**)。
+- **リポジトリ**: `matomete-app`(安全配送まとめてアプリ)。単一ファイルSPA([index.html](index.html)、約8900行)+ Firebase(Firestore/Auth/Storage/**Cloud Functions/FCM**)。
 - **ブランチ運用**: `main`=本番公開中(GitHub Pages、Firebase接続版)、`develop`=開発中。リリース時は`develop`→`main`マージ(手順は[README.md](README.md)参照)。
 - **Firebaseプロジェクト**: `anzen-matomete-app`(Blazeプラン、asia-northeast1)。
 - **アプリバージョン**: **v0.4.5(mainへ本公開済み)**。
@@ -36,7 +36,7 @@ v0.4.1がmain未マージの時期にv0.4.1のマージへ未検証コードが�
 
 ### `develop`にドキュメントのみのコミットが未マージで載っています
 
-v0.4.5の実機確認完了を記録したHANDOFFの更新です。`index.html`には差分がありません。
+v0.4.5の実機確認完了の記録と、引き継ぎ書の後半(負債の要約・開発環境・運用ルール・次の候補)を実態に合わせた更新の2件です。`index.html`には差分がありません。
 `main`を`v0.4.5`タグと一致した状態に保つため意図的にマージしておらず、
 **次のリリースに同梱します**(南野さんの指示)。
 
@@ -702,8 +702,8 @@ iPhoneのホーム画面追加(standalone)表示で、`#bottom-nav`(下部タブ
 
 - **ゲームタブ**: 「近日公開」のプレースホルダーのみ。実装なし(本公開後も保留機能)。
 - **[TECH_DEBT.md](TECH_DEBT.md)を参照**:
-  1. `st.currentUid`依存: 周知タブの実データ既読は解消済み。モック6件・チャット未読カウント・`recalcTeamCounts()`の人数集計は未解消。
-  1b. 周知タブの実データ到達率は`users.list`がadmin限定のため管理者にのみ表示(仕様として確定)。
+  1. `st.currentUid`依存: v0.4.4のモック周知撤去で**参照は4箇所まで減った**(定義・`setRole()`の代入・ゲームタブの`gameNotifRegistered`・コメント)。動作に使われているのはゲームタブの1箇所だけ。以前ここに書いていた「チャット未読カウント」「`recalcTeamCounts()`」は参照していない(記述が古かった)。
+  1b. 周知タブの到達率は`users.list`がadmin限定のため管理者にのみ表示(仕様として確定)。一般ユーザー向けの表示はモック専用だったためv0.4.4で画面から消えた。
   2/2b/2c. 乗務員コードCSV一括投入は対応済み。個別登録時のAuthアカウント作成・退職者削除後のAuthアカウント残留は意図的に未対応(`functions/`基盤は新設済みのため対応可能に)。
   3. パスワードセルフリセット機能(`functions/`基盤は新設済み、設計のみ確定)。
   4. 周知タブの予約配信は自動公開されない(手動publishNowのみ。ただし後追い公開時のプッシュ通知自体はv0.3で対応済み)。
@@ -714,6 +714,9 @@ iPhoneのホーム画面追加(standalone)表示で、`#bottom-nav`(下部タブ
   12. **インライン`onclick`への文字列埋め込み(v0.4.1・v0.4.2で対応済み)**: 事故パターンと採った修正方針の記録として残置。新しいクリックハンドラを書くときは`bindDataClick()`を使うこと。
   13. v0.4.1で見送った2件(`manuals`の`fileUrl`/`storagePath`ホワイトリスト保護、手順書の`publishedAt`新設)。いずれも見送りの判断根拠付きで記録済み。**未対応**。
   14. **セレクタを失ったCSS宣言ブロックが後続ルールを飲み込む(v0.4.2で対応済み)**: 事故パターンと再発防止の確認手順(ルール総数とCSSOM上の並びを見る)の記録として残置。
+  15. チャットの日付セパレータの「今日/昨日」は、開いたまま深夜0時をまたぐと次の再描画まで古いまま残る(v0.4.3・意図的に**未対応**)。直すなら`fmtChatDateLabel()`ではなく「日付が変わったら`renderChat()`を1回呼ぶ」形で。
+  16. 周知のモック掲示6件を撤去(v0.4.4で対応済み・記録)。新着バッジが変化しない根拠2点も記載。
+  17. `showReachPublic()`を撤去(v0.4.5で対応済み・記録)。あわせて未使用CSS`.reach-mini-public`(2ルール)を**未対応**として記録——消すかどうかは南野さんの判断待ち。
 
 ## 開発環境の状態(このマシン固有)
 
@@ -727,7 +730,10 @@ iPhoneのホーム画面追加(standalone)表示で、`#bottom-nav`(下部タブ
 - **GCP IAM設定済み**: Cloud Storageのセキュリティルールが`firestore.get()`でFirestoreをクロスサービス参照するため、サービスアカウント`service-163103621501@gcp-sa-firebasestorage.iam.gserviceaccount.com`に`roles/datastore.user`を付与済み。これがないとStorageアップロードが`storage/unauthorized`で失敗する。
 - **ローカル動作確認用サーバー**: 必ず`http://localhost:8000/index.html`のようにローカルサーバー経由で開くこと(`.claude/launch.json`の`matomete-app`設定、`python -m http.server 8000`)。**`file://`で直接開くと`<script src>`読み込みに失敗する**(既知の問題)。
 - **VAPID鍵は設定済み**: `index.html`の`FCM_VAPID_KEY`定数に南野さんがFirebase Consoleで生成した公開鍵を設定済み(v0.3)。公開鍵のためリポジトリに含めてよい。
-- **ブラウザのスクリーンショットが取得できない場合がある**: Browserペインが非表示だと`computer{action:"screenshot"}`が「not compositing frames」で失敗する。その場合は`javascript_tool`での`getBoundingClientRect()`/`getComputedStyle()`実測と、実物のCSSを転記した比較用HTMLを`SendUserFile`で提出する方法で代替できる(v0.4.1のドット比較で実施)。
+- **ブラウザのスクリーンショットが取得できない場合がある**: Browserペインが非表示だと`computer{action:"screenshot"}`が「not compositing frames」で失敗する。その場合は`javascript_tool`での`getBoundingClientRect()`/`getComputedStyle()`による実測値で代替する。**比較用HTML・原寸レプリカは作らない**(v0.4.1で作ったが、デスクトップ表示はPWAスタンドアロンの実機と見え方が違い判断材料にならなかった。見た目の値は暫定値のままリリースし、実機で判断する方針)。
+- **`index.html`・`HANDOFF.md`・`TECH_DEBT.md`の改行はCRLF**。スクリプトで複数行を置換するときは、検索文字列側もCRLFへ変換しないと一致しない(v0.4.4で踏んだ)。また`python - <<'EOF'`のようにstdin経由で渡すと日本語リテラルが化けるため、**スクリプトはいったんファイルへ書き出してから実行する**。置換は「期待件数と一致しなければ何も書き込まずに止める」形にしておくと、行番号のズレで別箇所を書き換える事故を防げる。
+- **スクラッチパッドのファイルは、ターンをまたぐと消えていることがある**(構文チェック用の`syntax-check.js`が消えていた実績あり)。使う前に存在を確認し、無ければ作り直す。構文チェック自体は「インライン`<script>`を正規表現で抜き出して`new vm.Script()`に通す」だけの十数行。
+- **幅の実測は`resize_window`で375px / 414pxに設定**して行う。終わったら`preset: "desktop"`で戻すこと。非表示の親要素(`.hidden`)や非アクティブなタブ(`.tab-panel`に`active`が無い)の中は寸法が0になるので、測る前に表示状態にする。
 
 ## テスト・デプロイ手順(次回も同じ)
 
@@ -753,8 +759,17 @@ npx firebase-tools deploy --only storage --project anzen-matomete-app
 - `seed.html`は`.gitignore`で除外(実行後は毎回未追跡のまま)。
 - コミット前に`git status`で意図しない差分がないか確認 → `npm run test:rules`全pass確認 → コミット → push、の順を徹底。
 - 実機テストで本番Firestoreにテストデータを書き込んだ場合は、テスト直後に必ず削除して原状復帰する。**ただし`sessions`コレクションは`allow update, delete: if false`(追記のみ)のため、検証で作成したセッションレコード自体は削除できない**(`users.lastActiveDate`は自己更新可能なため元に戻せる)。
-- **mainへのマージは指示がない限り行わない**(既定)。ただしv0.4.1・v0.4.2は南野さんの指示により
-  こちら側でマージ・タグ付けまで実行した。**リリースのたびにどちらが実行するか確認すること。**
+- **mainへのマージは指示がない限り行わない**(既定)。実績としては、**v0.4.1〜v0.4.5はすべて
+  南野さんの指示書に「タグ作成・マージ・Pages反映確認まで実施」と明記があり、こちら側で実行した**
+  (iOS実機確認のみ南野さん)。指示書にその記載が無いリリースでは、実行前に確認すること。
+- **実機確認が終わった後のドキュメント更新(HANDOFFへの完了記録など)は`develop`に積むだけで、
+  `main`へはマージしない。** `main`を版タグと一致した状態に保ち、次のリリースに同梱する
+  (v0.4.2・v0.4.3・v0.4.5の後で同じ運用)。
+- **描画パスの違う変更を1つのリリースに入れるときは、作業ごとにコミットを分ける**(v0.4.4・v0.4.5)。
+  切り戻しがタグ単位だけでなくコミット単位の`git revert`でも選べるようになる。
+- **「調査のみ・修正はしない」と指示された箇所は、実測値を報告して判断を待つ**。v0.4.4で
+  周知フィルターのはみ出しを報告のみに留め、v0.4.5で指示を受けてから直した。同様に、指示の範囲外で
+  見つけた不要コード(`.reach-mini-public`など)は消さずにTECH_DEBTへ記録して判断を仰ぐ。
 - **リリースを確定と言われたら、実機確認の結果報告があるまで`develop`に一切変更を積まない**
   (ドキュメントの微修正も含む)。本番に入っているものを一意に保つため。
 - リモートに未取得のコミットがある場合は`git fetch`→`git rebase origin/develop`してからpushする。
@@ -770,10 +785,15 @@ npx firebase-tools deploy --only storage --project anzen-matomete-app
 このリポジトリのタスクではありません**(上記の申し送り参照)。
 
 1. v0.3の残タスク: 一般ドライバーのメニューに「通知設定」が実際に表示されることを実機/実ログインで確認する(Stage2は`config/notifications.openToAllUsers`をtrueに更新済み。メニュー項目のゲート修正`96db84f`はStage1検証より後に入ったため未確認のまま)。問題があれば`config/notifications.openToAllUsers`を`false`に戻すだけでStage0相当に即座に戻せる。
-2. v0.3.1の残タスク: iOS実機でタブバー下の白帯が解消されているか、`#app`の`position:fixed`化による揺れの回帰が無いかを確認(v0.3.2で`status-bar-style`を`default`に変更して対処済み)。
-3. `st.currentUid`依存の残存箇所(モック周知データ・チャット未読・`recalcTeamCounts()`)を`fbUser.code`ベースへ統一(TECH_DEBT.md #1)。
-4. 未実装のまま残っている機能: ゲームタブ(「近日公開」のプレースホルダーのみ)、周知タブの予約配信の
+2. 未使用CSS`.reach-mini-public`(2ルール)を消すかどうかの判断(TECH_DEBT.md #17)。消す場合は
+   CSSOMのルール総数が325→323になることと、直後の`.role-menu`が飲み込まれていないことを確認する。
+3. `st.currentUid`の残り(実質ゲームタブの1箇所)を`fbUser.code`ベースへ寄せる(TECH_DEBT.md #1)。
+   ゲームタブを実装するタイミングで行うのが自然。
+4. `#fb-driver-nav`は`.chip-row`を素のまま(横スクロール)で使っている最後の1箇所。現在は3つで
+   375pxに収まっているが余白は8pxしかない。ボタンを足すなら`wrap`の追加が必要になる。
+5. 未実装のまま残っている機能: ゲームタブ(「近日公開」のプレースホルダーのみ)、周知タブの予約配信の
    自動公開(TECH_DEBT #4)、パスワードのセルフリセット(#3)、メール通知(#5・
    [docs/メール通知_将来実装メモ.md](docs/メール通知_将来実装メモ.md))。いずれも`functions/`基盤に
    乗せて実装できる状態です。
-5. 次のリリースがあればREADME.mdのリリース手順に従う。
+6. 次のリリースがあればREADME.mdのリリース手順に従う。`develop`に待機中のドキュメントコミットが
+   そのリリースに同梱される。
