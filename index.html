@@ -2238,7 +2238,7 @@ header {
         <span class="thread-banner-text" id="thread-banner-text"></span>
         <button class="thread-banner-clear" onclick="clearTagFilter()">✕ 解除</button>
       </div>
-      <div class="chip-row hide-scroll" id="ann-filters">
+      <div class="chip-row hide-scroll wrap" id="ann-filters">
         <button class="chip active" onclick="filterAnn('all',this)">すべて</button>
         <button class="chip" onclick="filterAnn('unread',this)">未読のみ</button>
         <button class="chip" onclick="filterAnn('mustread',this)">✋ 必読のみ</button>
@@ -2628,7 +2628,7 @@ header {
 // ヘッダーバッジ・ユーザーメニュー・アプリ情報画面・利用状況計測(sessions.appVersion)は
 // すべてこの定数を参照する(#version-badge/#um-version-subtitleへは初期化処理でJSから反映、
 // アプリ情報画面・recordSession()は関数内で直接参照)
-const APP_VERSION = '0.4.4';
+const APP_VERSION = '0.4.5';
 
 /* ===== データ ===== */
 
@@ -2902,7 +2902,7 @@ function buildAnnReadStatus(readsMap) {
   return { reach: { targets: annAllDrivers, readCount, total, pct }, readUsers, unreadUsers, ackedCount };
 }
 
-// 実データ用: readsサブコレクションをone-shot取得して既読状況を組み立てる(showReach/showReachPublic/CSV用。常時リスナーは張らない)
+// readsサブコレクションをone-shot取得して既読状況を組み立てる(showReach/exportAnnCsv用。常時リスナーは張らない)
 async function fetchAnnReadStatus(id) {
   if (annAllDrivers.length === 0) await fetchAnnAllDrivers();
   const snap = await fbDb.collection('announcements').doc(id).collection('reads').get();
@@ -4023,6 +4023,7 @@ async function saveNotifPrefs() {
 
 // 更新履歴。git履歴・HANDOFF.md・TECH_DEBT.mdから裏の取れる範囲で記録する(過去分を遡って捏造しない)
 const CHANGELOG = [
+  { version: '0.4.5', items: ['周知の絞り込みボタンが画面外に出ていたのを修正(管理者表示)', '使われなくなった処理を整理'] },
   { version: '0.4.4', items: ['周知の初期表示コンテンツ(サンプル掲示6件)を削除', '報告のステータスで絞り込むボタンが画面外に出ていたのを修正'] },
   { version: '0.4.3', items: ['チャットに日付の区切りを表示(今日・昨日・日付)'] },
   { version: '0.4.2', items: ['タグ・KYTの選択肢・班名に引用符が含まれると反応しなくなる不具合を修正', 'タグ名・KYTの選択肢に < や & が含まれるときの表示崩れを修正', 'ヘッダーのベルの点をさらに大きく調整', '未使用のスタイル定義を整理'] },
@@ -5340,94 +5341,6 @@ async function confirmDeleteAnn(id) {
 }
 
 /* ===== 周知：到達率ダッシュボード ===== */
-
-// ドライバー向け：シンプルな既読率ポップアップ（モーダル）
-async function showReachPublic(id) {
-  const a = findAnn(id);
-  if (!a) return;
-  const status = await fetchAnnReadStatus(a.id);
-  const { reach, readUsers, unreadUsers, ackedCount } = status;
-
-  // ドーナツ用
-  const r = 36, c = 2 * Math.PI * r, offset = c * (1 - reach.pct / 100);
-
-  openModal(`
-    <div class="modal-card" style="max-height:80vh">
-      <div class="modal-header">
-        <div class="modal-title">📊 既読状況</div>
-        <button class="modal-close" onclick="closeModal()">✕</button>
-      </div>
-      <div class="modal-body">
-        <div style="font-size:14px;font-weight:700;color:var(--navy);margin-bottom:16px;line-height:1.5">${escHtml(a.title)}</div>
-
-        <div style="display:flex;align-items:center;gap:18px;background:var(--surface2);border-radius:12px;padding:16px;margin-bottom:16px">
-          <div style="position:relative;width:80px;height:80px;flex-shrink:0">
-            <svg width="80" height="80" viewBox="0 0 80 80">
-              <circle cx="40" cy="40" r="${r}" fill="none" stroke="var(--border)" stroke-width="7"/>
-              <circle cx="40" cy="40" r="${r}" fill="none" stroke="var(--primary)" stroke-width="7"
-                stroke-dasharray="${c.toFixed(1)}" stroke-dashoffset="${offset.toFixed(1)}"
-                stroke-linecap="round" style="transform:rotate(-90deg);transform-origin:40px 40px"/>
-            </svg>
-            <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">
-              <div style="font-size:20px;font-weight:700;color:var(--navy)">${reach.pct}%</div>
-            </div>
-          </div>
-          <div>
-            <div style="font-size:22px;font-weight:700;color:var(--navy)">${reach.readCount}<span style="font-size:13px;color:var(--text-sub);font-weight:500"> / ${reach.total}名</span></div>
-            <div style="font-size:12px;color:var(--text-sub);margin-top:4px">が既読です</div>
-            ${a.mustRead ? `<div style="font-size:11px;color:var(--danger);margin-top:6px;font-weight:700">✋ 必読確認: ${ackedCount}/${reach.total}名</div>` : ''}
-          </div>
-        </div>
-
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
-          <div class="reach-stat-card" style="padding:10px 8px">
-            <div class="reach-stat-num" style="color:var(--safe);font-size:22px">${reach.readCount}</div>
-            <div class="reach-stat-lbl">既読</div>
-          </div>
-          <div class="reach-stat-card" style="padding:10px 8px">
-            <div class="reach-stat-num" style="color:var(--text-muted);font-size:22px">${unreadUsers.length}</div>
-            <div class="reach-stat-lbl">未読</div>
-          </div>
-        </div>
-
-        ${readUsers.length > 0 ? `
-          <div class="user-list-wrap" style="margin-bottom:10px">
-            <div class="user-list-header">
-              <span>✓ 既読のメンバー（${readUsers.length}名）</span>
-            </div>
-            ${readUsers.map(u => `
-              <div class="user-row">
-                <div class="msg-av" style="background:linear-gradient(135deg,#0D3D9E,#3F8CEF)">${(u.name||'?')[0]}</div>
-                <div class="user-info">
-                  <div class="user-name">${escHtml(u.name)}</div>
-                  <div class="user-meta">${escHtml(getTeamLabel(u.team))} · ${escHtml(u.driverNo)}</div>
-                </div>
-                <span class="user-status read">既読</span>
-              </div>`).join('')}
-          </div>
-        ` : ''}
-
-        ${unreadUsers.length > 0 ? `
-          <div class="user-list-wrap">
-            <div class="user-list-header">
-              <span>🔴 未読のメンバー（${unreadUsers.length}名）</span>
-            </div>
-            ${unreadUsers.map(u => `
-              <div class="user-row">
-                <div class="msg-av" style="background:#C0C8D4">${(u.name||'?')[0]}</div>
-                <div class="user-info">
-                  <div class="user-name">${escHtml(u.name)}</div>
-                  <div class="user-meta">${escHtml(getTeamLabel(u.team))} · ${escHtml(u.driverNo)}</div>
-                </div>
-                <span class="user-status unread">未読</span>
-              </div>
-            `).join('')}
-          </div>
-        ` : ''}
-      </div>
-    </div>
-  `);
-}
 
 async function showReach(id) {
   const a = findAnn(id);
