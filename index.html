@@ -2469,7 +2469,7 @@ header {
         </div>
 
         <!-- ステータスフィルタ -->
-        <div class="chip-row hide-scroll" id="report-filters">
+        <div class="chip-row hide-scroll wrap" id="report-filters">
           <button class="chip active" data-status="all" onclick="filterReports('all',this)">すべて <span id="rep-count-all" class="chip-badge"></span></button>
           <button class="chip" data-status="open" onclick="filterReports('open',this)">🔴 未対応 <span id="rep-count-open" class="chip-badge"></span></button>
           <button class="chip" data-status="in_progress" onclick="filterReports('in_progress',this)">🟡 対応中 <span id="rep-count-in_progress" class="chip-badge"></span></button>
@@ -2628,7 +2628,7 @@ header {
 // ヘッダーバッジ・ユーザーメニュー・アプリ情報画面・利用状況計測(sessions.appVersion)は
 // すべてこの定数を参照する(#version-badge/#um-version-subtitleへは初期化処理でJSから反映、
 // アプリ情報画面・recordSession()は関数内で直接参照)
-const APP_VERSION = '0.4.3';
+const APP_VERSION = '0.4.4';
 
 /* ===== データ ===== */
 
@@ -2717,137 +2717,6 @@ const annCategories = [
   { id:'other',   label:'その他', color:'var(--text-sub)' },
 ];
 
-// お知らせ 初期表示用モックデータ(id は数値。実データ(Firestore, id=文字列)と混在表示し、
-// 編集・削除は不可の読み取り専用アセットとして維持する。既読操作は
-// 従来どおりローカル配列のmutateのみで完結し、Firestoreへは書き込まない)
-const MOCK_ANNOUNCEMENTS = [
-  {
-    id:1,
-    from:"本部・安全管理部",
-    title:"【重要】夏季の熱中症対策ガイドライン改定",
-    body:"気温35℃超の際は必ず中間休憩を取得すること。スポーツドリンク支給ボックスを各拠点に設置済み。",
-    category:'safety',
-    priority:'high',
-    target:'all',
-    pinned:true,
-    mustRead:true,                       // 必読フラグ
-    readDeadline:'2026-06-25 23:59',     // 既読期限
-    tags:['熱中症','夏季','安全'],
-    time:"10分前",
-    createdAt:'2026-06-19 09:50',
-    publishedAt:'2026-06-19 09:50',
-    scheduledAt:null,
-    status:'published',
-    readBy:['u02','u05','u07'],
-    ackedBy:['u02','u05'],               // 「読みました」を押したユーザー
-    read:false,
-  },
-  {
-    id:2,
-    from:"配送センター長・田中",
-    title:"6月シフト確認のお願い",
-    body:"6月分のシフト希望を今週金曜までに提出してください。遅れた場合は自動割当となります。",
-    category:'work',
-    priority:'normal',
-    target:'all',
-    pinned:false,
-    mustRead:false,
-    readDeadline:null,
-    tags:['シフト','6月'],
-    time:"2時間前",
-    createdAt:'2026-06-19 08:00',
-    publishedAt:'2026-06-19 08:00',
-    scheduledAt:null,
-    status:'published',
-    readBy:['u02','u03','u05','u06','u07'],
-    ackedBy:[],
-    read:false,
-  },
-  {
-    id:3,
-    from:"本部・人事部",
-    title:"社内表彰制度 推薦受付開始",
-    body:"今期の模範配送員推薦を受け付けています。各チームリーダーは候補者を提出のこと。",
-    category:'hr',
-    priority:'low',
-    target:'team_d',
-    pinned:false,
-    mustRead:false,
-    readDeadline:null,
-    tags:['人事','表彰'],
-    time:"昨日",
-    createdAt:'2026-06-18 14:30',
-    publishedAt:'2026-06-18 14:30',
-    scheduledAt:null,
-    status:'published',
-    readBy:['u01','u02','u05','u07'],
-    ackedBy:[],
-    read:true,
-  },
-  {
-    id:4,
-    from:"配送センター長・田中",
-    title:"【予約配信】明日朝の朝礼スケジュール",
-    body:"明日 6/21（日）の朝礼は通常通り 8:00 開始です。\n夏季シフトの説明があるため、全員参加でお願いします。",
-    category:'work',
-    priority:'normal',
-    target:'all',
-    pinned:false,
-    mustRead:false,
-    readDeadline:null,
-    tags:['朝礼'],
-    time:"配信予定",
-    createdAt:'2026-06-20 06:30',
-    publishedAt:null,
-    scheduledAt:'2026-06-21 07:00',
-    status:'scheduled',
-    readBy:[],
-    ackedBy:[],
-    read:false,
-  },
-  {
-    id:5,
-    from:"配送センター長・田中",
-    title:"5月シフト 確定のお知らせ",
-    body:"5月分のシフトを確定しました。各自カレンダーから確認してください。",
-    category:'work',
-    priority:'low',
-    target:'all',
-    pinned:false,
-    mustRead:false,
-    readDeadline:null,
-    tags:['シフト','5月'],                 // ↑ID 2 と同じ 'シフト' タグでスレッド化
-    time:"3週間前",
-    createdAt:'2026-05-28 17:00',
-    publishedAt:'2026-05-28 17:00',
-    scheduledAt:null,
-    status:'published',
-    readBy:['u01','u02','u03','u04','u05','u06','u07','u08'],
-    ackedBy:[],
-    read:true,
-  },
-  {
-    id:6,
-    from:"本部・安全管理部",
-    title:"水分補給・休憩の徹底について",
-    body:"梅雨明け前ですが日中の気温上昇が著しいため、こまめな水分補給を徹底してください。",
-    category:'safety',
-    priority:'normal',
-    target:'all',
-    pinned:false,
-    mustRead:false,
-    readDeadline:null,
-    tags:['熱中症','夏季'],                  // ↑ID 1 と同じタグでスレッド化
-    time:"5日前",
-    createdAt:'2026-06-15 11:00',
-    publishedAt:'2026-06-15 11:00',
-    scheduledAt:null,
-    status:'published',
-    readBy:['u01','u02','u03','u05','u06','u07'],
-    ackedBy:[],
-    read:true,
-  },
-];
 
 /* ===== 周知(お知らせ) =====
    Firestore スキーマ:
@@ -2856,12 +2725,11 @@ const MOCK_ANNOUNCEMENTS = [
                                      createdAt/updatedAt/publishedAt)
      - announcements/{id}/reads/{code} …既読・必読確認記録(本人のみ作成・更新可)
    announcements はログイン時に attachAnnouncementsListener() で全件onSnapshotし、
-   MOCK_ANNOUNCEMENTS(id=数値、読み取り専用の初期表示アセット)と連結したものを保持する。
-   id の型で実データ(文字列)/モック(数値)を判別し、操作系関数(既読・編集・削除等)を出し分ける。
+   Firestoreの実データのみを保持する(v0.4.4でv0.1モック時代の初期表示コンテンツ6件を撤去)。
    予約配信(status:'scheduled')の実データは一般ユーザーには一覧・詳細とも非表示にする(rules上は
    読めるが、クライアント側の描画で制御する)。自動公開(scheduledAt到来時のCloud Functions等)は
    実装せず、公開は管理者の「今すぐ配信」操作のみで行う。 */
-let announcements = [...MOCK_ANNOUNCEMENTS]; // Firestoreミラー + モックの連結後配列
+let announcements = [];                      // announcementsコレクションの読み取り専用ミラー
 let announcementsUnsub = null;               // announcementsコレクションリスナーのunsubscribe
 let annReadsUnsub = null;                    // 詳細画面で開いているお知らせのreadsリスナーのunsubscribe
 let annCurrentReads = {};                    // 詳細画面で購読中のreads一覧 { [code]: {code,name,readAt,acked,ackedAt} }
@@ -3001,39 +2869,26 @@ const getCat   = id => annCategories.find(c => c.id === id) || annCategories[4];
 const getTeam  = id => teams.find(t => t.id === id) || teams[0];
 const getUser  = id => users.find(u => u.id === id);
 
-// 対象グループに属するドライバーを取得（モックお知らせ専用。実データはannAllDriversを使う）
+// 対象グループに属するドライバーを取得（現在の呼び出し元はチャットのgetChannelMembers()のみ）
 function getTargetDrivers(targetId) {
   const drivers = users.filter(u => u.role === 'driver');
   if (targetId === 'all') return drivers;
   return drivers.filter(u => u.team === targetId);
 }
 
-// announcements配列からidで検索する（モック=数値id・実データ=Firestore文字列idの両方に対応するため文字列化して比較）
+// announcements配列からidで検索する（data属性経由で数値化されても拾えるよう文字列化して比較する）
 function findAnn(id) {
   return announcements.find(x => String(x.id) === String(id));
 }
 
-// 到達率を計算（モックはローカルreadBy配列、実データはannReachCacheのone-shot件数を使う）
+// 到達率を計算（annReachCacheのone-shot件数を使う）。annAllDrivers は管理者のみ取得できるため
+// 一般ユーザーでは total=0・pct=0 になる(users.listがadmin限定。TECH_DEBT項目1b)
 function calcReach(ann) {
-  if (typeof ann.id === 'number') {
-    const targets = getTargetDrivers(ann.target);
-    const readCount = targets.filter(u => ann.readBy.includes(u.id)).length;
-    const pct = targets.length === 0 ? 0 : Math.round(readCount / targets.length * 100);
-    return { targets, readCount, total: targets.length, pct };
-  }
   const total = annAllDrivers.length;
   const cached = annReachCache[ann.id];
   const readCount = cached ? cached.readCount : 0;
   const pct = total === 0 ? 0 : Math.round(readCount / total * 100);
   return { targets: annAllDrivers, readCount, total, pct };
-}
-
-// モックお知らせの既読状況（従来ロジックそのまま。CSV出力等の統一インターフェース用にackedも付与）
-function getAnnReadStatusMock(a) {
-  const reach = calcReach(a);
-  const readUsers = reach.targets.filter(u => a.readBy.includes(u.id)).map(u => Object.assign({}, u, { acked: a.ackedBy.includes(u.id) }));
-  const unreadUsers = reach.targets.filter(u => !a.readBy.includes(u.id)).map(u => Object.assign({}, u, { acked: false }));
-  return { reach, readUsers, unreadUsers, ackedCount: a.ackedBy.length };
 }
 
 // annAllDrivers + readsMap(code -> {acked,readAt,...}) から統一形式の既読状況を組み立てる（実データ用）
@@ -3064,10 +2919,9 @@ async function fetchAnnAllDrivers() {
   } catch (e) { console.error('ドライバー一覧取得エラー:', e); }
 }
 
-// 一覧表示の到達率バッジ用キャッシュを更新する(実データのみ、one-shotでlistener常設を避ける)
+// 一覧表示の到達率バッジ用キャッシュを更新する(one-shotでlistener常設を避ける)
 async function refreshAnnReachCache() {
-  const realItems = announcements.filter(a => typeof a.id !== 'number');
-  await Promise.all(realItems.map(a =>
+  await Promise.all(announcements.map(a =>
     fbDb.collection('announcements').doc(a.id).collection('reads').get()
       .then(snap => { annReachCache[a.id] = { readCount: snap.size }; })
       .catch(e => console.error('お知らせ既読数取得エラー:', a.id, e))
@@ -3075,11 +2929,10 @@ async function refreshAnnReachCache() {
 }
 
 // 自分のannouncements既読/必読確認状況を一括取得(list表示のmust-readバッジ・既読ドット判定用)。
-// コレクショングループクエリではなく、実データ件数分の直接doc getで済ませる(索引不要・件数も小さい前提)
+// コレクショングループクエリではなく、件数分の直接doc getで済ませる(索引不要・件数も小さい前提)
 async function fetchMyAnnAcks() {
   if (!fbUser) return;
-  const realItems = announcements.filter(a => typeof a.id !== 'number');
-  const results = await Promise.all(realItems.map(a =>
+  const results = await Promise.all(announcements.map(a =>
     fbDb.collection('announcements').doc(a.id).collection('reads').doc(fbUser.code).get()
       .then(doc => [a.id, doc.exists ? doc.data() : null])
       .catch(() => [a.id, null])
@@ -3088,16 +2941,14 @@ async function fetchMyAnnAcks() {
   results.forEach(([id, data]) => { if (data) myAnnAcks[id] = data; });
 }
 
-// 実データお知らせの既読判定(readsドキュメントの有無=既読)。モックはa.readのまま
+// お知らせの既読判定(readsドキュメントの有無=既読)
 function annIsRead(a) {
-  if (typeof a.id === 'number') return a.read;
   return !!myAnnAcks[a.id];
 }
 
-// 一覧・詳細に表示する相対時刻。モックは事前計算済み文字列、実データはcreatedAtから算出する。
+// 一覧・詳細に表示する相対時刻。createdAtから算出する。
 // serverTimestamp()のlatency compensationで投稿直後はcreatedAtがnullになるため「たった今」にフォールバックする
 function annTimeLabel(a) {
-  if (typeof a.id === 'number') return a.time;
   return fmtRelativeTime(a.createdAt);
 }
 
@@ -3397,7 +3248,6 @@ function isAfterBadgeSince(createdAt) {
 function unreadAnnouncements() {
   if (!fbUser) return [];
   return announcements.filter(a =>
-    typeof a.id !== 'number' &&               // モックは対象外(凍結資産)
     a.status === 'published' &&
     !myAnnAcks[a.id] &&
     isAfterBadgeSince(a.createdAt)
@@ -4173,6 +4023,7 @@ async function saveNotifPrefs() {
 
 // 更新履歴。git履歴・HANDOFF.md・TECH_DEBT.mdから裏の取れる範囲で記録する(過去分を遡って捏造しない)
 const CHANGELOG = [
+  { version: '0.4.4', items: ['周知の初期表示コンテンツ(サンプル掲示6件)を削除', '報告のステータスで絞り込むボタンが画面外に出ていたのを修正'] },
   { version: '0.4.3', items: ['チャットに日付の区切りを表示(今日・昨日・日付)'] },
   { version: '0.4.2', items: ['タグ・KYTの選択肢・班名に引用符が含まれると反応しなくなる不具合を修正', 'タグ名・KYTの選択肢に < や & が含まれるときの表示崩れを修正', 'ヘッダーのベルの点をさらに大きく調整', '未使用のスタイル定義を整理'] },
   { version: '0.4.1', items: ['手順書のタイトル・説明が保存できない不具合を修正', '新着・未読の点を大きくし、縁取りを追加'] },
@@ -4421,10 +4272,9 @@ function deadlineInfo(iso) {
   return { text, level };
 }
 
-// 必読・期限切れ判定(モックはローカルackedBy、実データはmyAnnAcksキャッシュを使う)
+// 必読・期限切れ判定(myAnnAcksキャッシュを使う)
 function isMustReadPending(a) {
   if (!a.mustRead) return false;
-  if (typeof a.id === 'number') return !a.ackedBy.includes(st.currentUid);
   return !(myAnnAcks[a.id] && myAnnAcks[a.id].acked);
 }
 
@@ -4456,7 +4306,6 @@ function highlight(text, q) {
 // お知らせのHTML生成（1件分）
 function renderAnnCard(a, opts={}) {
   const isManager = st.role === 'manager';
-  const isReal = typeof a.id !== 'number'; // 実データ(Firestore, id=文字列)のみ編集・削除・配信操作可
   const cat = getCat(a.category);
   const team = getTeam(a.target);
   const reach = calcReach(a);
@@ -4510,27 +4359,25 @@ function renderAnnCard(a, opts={}) {
           <div class="reach-mini" style="background:rgba(124,58,237,.08);color:#6D28D9">
             <span>⏰</span><span>配信待ち</span>
           </div>
-          ${isReal ? `
-            <button class="ann-action-btn primary" onclick="publishNow('${a.id}')">
-              <span>🚀</span>今すぐ配信
-            </button>
-            <button class="ann-action-btn" onclick="openAnnEditor('${a.id}')">
-              <span>✏️</span>編集
-            </button>
-            <button class="ann-action-btn danger" onclick="deleteAnn('${a.id}')">
-              <span>🗑️</span>
-            </button>
-          ` : ''}
+          <button class="ann-action-btn primary" onclick="publishNow('${a.id}')">
+            <span>🚀</span>今すぐ配信
+          </button>
+          <button class="ann-action-btn" onclick="openAnnEditor('${a.id}')">
+            <span>✏️</span>編集
+          </button>
+          <button class="ann-action-btn danger" onclick="deleteAnn('${a.id}')">
+            <span>🗑️</span>
+          </button>
         ` : ''}
       ` : `
-        ${isManager || !isReal ? `
-        <button class="reach-mini-btn" onclick="event.stopPropagation();${isManager ? `showReach('${a.id}')` : `showReachPublic('${a.id}')`}">
+        ${isManager ? `
+        <button class="reach-mini-btn" onclick="event.stopPropagation();showReach('${a.id}')">
           <span>📊</span>
           <span class="reach-pct">${reach.pct}%</span>
           <span style="color:var(--text-muted);font-size:11px">(${reach.readCount}/${reach.total}名既読)</span>
         </button>
         ` : ''}
-        ${isManager && isReal ? `
+        ${isManager ? `
           <button class="ann-action-btn" onclick="openAnnEditor('${a.id}')">
             <span>✏️</span>編集
           </button>
@@ -4572,7 +4419,7 @@ function renderAnn() {
   items = items.filter(a => matchesSearch(a, q) && matchesTag(a, tagFilter));
 
   // ソート（ピン→公開済→予約）
-  // ソートキー用のミリ秒値を取得(モック=文字列、実データ=Firestore Timestampの両方に対応)
+  // ソートキー用のミリ秒値を取得(Firestore Timestamp。未確定nullや文字列が来た場合の保険も兼ねる)
   const annSortTime = v => {
     if (!v) return 0;
     if (typeof v.toDate === 'function') return v.toDate().getTime(); // Firestore Timestamp
@@ -4730,19 +4577,12 @@ function showAnn(id) {
   const a = findAnn(id);
   if (!a) return;
   const isManager = st.role === 'manager';
-  const isMock = typeof a.id === 'number';
 
   // 予約配信は一般ユーザーには非表示(一覧だけでなく詳細への直接遷移も防ぐ)
   if (!isManager && a.status === 'scheduled') return;
 
-  // 既読記録: モックはローカルmutate(st.currentUidのまま、凍結資産として維持)、
-  // 実データはfbUser.codeベースでreadsサブコレクションに書き込む
-  if (isMock) {
-    if (!isManager && !a.readBy.includes(st.currentUid)) {
-      a.readBy.push(st.currentUid);
-      a.read = true;
-    }
-  } else if (!isManager && fbUser) {
+  // 既読記録: fbUser.codeベースでreadsサブコレクションに書き込む
+  if (!isManager && fbUser) {
     fbDb.collection('announcements').doc(a.id).collection('reads').doc(fbUser.code).set({
       code: fbUser.code, name: fbUser.name, readAt: firebase.firestore.FieldValue.serverTimestamp(),
     }, { merge: true }).then(() => {
@@ -4751,11 +4591,7 @@ function showAnn(id) {
   }
 
   st.annDetailId = id;
-  if (!isMock) {
-    attachAnnReadsListener(a.id); // 実データのみ: readsサブコレクションを購読し、変更のたびに再描画
-  } else if (annReadsUnsub) {
-    annReadsUnsub(); annReadsUnsub = null;
-  }
+  attachAnnReadsListener(a.id); // readsサブコレクションを購読し、変更のたびに再描画
 
   document.getElementById('ann-list').classList.add('hidden');
   document.getElementById('ann-filters').classList.add('hidden');
@@ -4774,13 +4610,11 @@ function renderAnnDetailBody(id) {
   const a = findAnn(id);
   if (!a) return;
   const isManager = st.role === 'manager';
-  const isMock = typeof a.id === 'number';
   const cat = getCat(a.category);
   const team = getTeam(a.target);
   const dl = deadlineInfo(a.readDeadline);
 
-  const status = isMock ? getAnnReadStatusMock(a) : buildAnnReadStatus(annCurrentReads);
-  const { reach, readUsers, unreadUsers, ackedCount } = status;
+  const { reach, ackedCount } = buildAnnReadStatus(annCurrentReads);
 
   // 関連お知らせ（同じタグを持つ別投稿）
   let related = [];
@@ -4792,7 +4626,7 @@ function renderAnnDetailBody(id) {
     );
   }
 
-  const acked = isMock ? a.ackedBy.includes(st.currentUid) : !!(fbUser && annCurrentReads[fbUser.code] && annCurrentReads[fbUser.code].acked);
+  const acked = !!(fbUser && annCurrentReads[fbUser.code] && annCurrentReads[fbUser.code].acked);
 
   // 必読確認バナー
   let ackBlock = '';
@@ -4876,51 +4710,16 @@ function renderAnnDetailBody(id) {
         </div>
         <div style="display:flex;gap:8px;margin-top:12px">
           <button class="btn btn-primary" style="flex:1" onclick="showReach('${id}')">📊 到達率の詳細</button>
-          ${isMock ? '' : `<button class="btn btn-ghost" style="flex:1" onclick="openAnnEditor('${id}')">✏️ 編集</button>`}
+          <button class="btn btn-ghost" style="flex:1" onclick="openAnnEditor('${id}')">✏️ 編集</button>
         </div>
-      ` : `
-        ${isMock ? `
-        <div class="divider"></div>
-        <div style="display:flex;align-items:center;justify-content:flex-end;margin-bottom:12px;flex-wrap:wrap;gap:8px">
-          <span style="font-size:13px;font-weight:700;color:var(--navy)">📊 ${reach.pct}%（${reach.readCount}/${reach.total}名既読）</span>
-        </div>
-        ${readUsers.length > 0 ? `
-          <div class="user-list-wrap" style="margin-bottom:8px">
-            <div class="user-list-header"><span>✓ 既読（${readUsers.length}名）</span></div>
-            ${readUsers.map(u => `<div class="user-row">
-                <div class="msg-av" style="background:linear-gradient(135deg,#0D3D9E,#3F8CEF)">${(u.name||'?')[0]}</div>
-                <div class="user-info">
-                  <div class="user-name">${escHtml(u.name)}</div>
-                  <div class="user-meta">${escHtml(getTeamLabel(u.team))}</div>
-                </div>
-                <span class="user-status read">既読</span>
-              </div>`).join('')}
-          </div>
-        ` : ''}
-        ${unreadUsers.length > 0 ? `
-          <div class="user-list-wrap">
-            <div class="user-list-header"><span>🔴 未読（${unreadUsers.length}名）</span></div>
-            ${unreadUsers.map(u => `
-              <div class="user-row">
-                <div class="msg-av" style="background:#C0C8D4">${(u.name||'?')[0]}</div>
-                <div class="user-info">
-                  <div class="user-name">${escHtml(u.name)}</div>
-                  <div class="user-meta">${escHtml(getTeamLabel(u.team))}</div>
-                </div>
-                <span class="user-status unread">未読</span>
-              </div>
-            `).join('')}
-          </div>
-        ` : ''}
-        ` : ''}
-      `}
+      ` : ''}
       ${relatedBlock}
     </div>`;
   // 一覧側とは遷移先が違う(詳細を閉じてからフィルタ)ため属性名を分けている
   bindDataClick(document.getElementById('ann-detail'), 'data-ann-thread-tag', tag => goToTagThread(tag));
 }
 
-// 詳細画面で開いているお知らせのreadsサブコレクションを購読する(実データのみ)
+// 詳細画面で開いているお知らせのreadsサブコレクションを購読する
 function attachAnnReadsListener(id) {
   if (annReadsUnsub) { annReadsUnsub(); annReadsUnsub = null; }
   annCurrentReads = {};
@@ -4939,27 +4738,18 @@ function attachAnnReadsListener(id) {
 // 必読を「確認しました」と記録
 function acknowledgeAnn(id) {
   const a = findAnn(id);
-  if (!a) return;
-  if (typeof a.id !== 'number') {
-    if (!fbUser) return;
-    fbDb.collection('announcements').doc(a.id).collection('reads').doc(fbUser.code).set({
-      code: fbUser.code, name: fbUser.name,
-      acked: true, ackedAt: firebase.firestore.FieldValue.serverTimestamp(),
-    }, { merge: true }).then(() => {
-      myAnnAcks[a.id] = Object.assign({}, myAnnAcks[a.id], { code: fbUser.code, name: fbUser.name, acked: true });
-      setTimeout(() => showToast('✓ 確認を記録しました'), 200);
-      // 開いていればonSnapshotが自動的に再描画する
-    }).catch(e => {
-      console.error('必読確認エラー:', e);
-      showToast('⚠️ 確認の記録に失敗しました（' + (e.code || e.message) + '）');
-    });
-    return;
-  }
-  if (!a.ackedBy.includes(st.currentUid)) {
-    a.ackedBy.push(st.currentUid);
-  }
-  showAnn(id);
-  setTimeout(() => showToast('✓ 確認を記録しました'), 200);
+  if (!a || !fbUser) return;
+  fbDb.collection('announcements').doc(a.id).collection('reads').doc(fbUser.code).set({
+    code: fbUser.code, name: fbUser.name,
+    acked: true, ackedAt: firebase.firestore.FieldValue.serverTimestamp(),
+  }, { merge: true }).then(() => {
+    myAnnAcks[a.id] = Object.assign({}, myAnnAcks[a.id], { code: fbUser.code, name: fbUser.name, acked: true });
+    setTimeout(() => showToast('✓ 確認を記録しました'), 200);
+    // 開いていればonSnapshotが自動的に再描画する
+  }).catch(e => {
+    console.error('必読確認エラー:', e);
+    showToast('⚠️ 確認の記録に失敗しました（' + (e.code || e.message) + '）');
+  });
 }
 
 // タグスレッドへ遷移（詳細ビューを閉じてフィルタを設定）
@@ -4995,7 +4785,7 @@ function backAnn() { closeAnnDetail(); }
 function openAnnEditor(id) {
   const isEdit = id !== null;
   const a = isEdit ? findAnn(id) : null;
-  if (isEdit && (!a || typeof a.id === 'number')) return; // モック(初期表示コンテンツ)は編集不可
+  if (isEdit && !a) return;
   st.editingAnnId = isEdit ? a.id : null;
 
   // 初期値
@@ -5458,7 +5248,7 @@ async function submitAnnPayload(payload, isEdit, isScheduled, scheduledAt) {
 // 予約中の投稿を今すぐ配信(自動配信は行わない。公開はこの操作のみ)
 function publishNow(id) {
   const a = findAnn(id);
-  if (!a || typeof a.id === 'number') return; // モックは対象外
+  if (!a) return;
   // 必読お知らせの後追い公開はonAnnouncementNotify(onDocumentWritten)がプッシュ通知を
   // 発火させるため、その場合のみopenNotifySendConfirm()で概算人数・プレビュー・現在時刻を確認させる
   if (a.mustRead) {
@@ -5514,7 +5304,7 @@ async function confirmPublishNow(id) {
 
 function deleteAnn(id) {
   const a = findAnn(id);
-  if (!a || typeof a.id === 'number') return; // モック(初期表示コンテンツ)は削除不可
+  if (!a) return;
   const html = `
     <div class="modal-card" style="max-height:auto">
       <div class="modal-header">
@@ -5555,8 +5345,7 @@ async function confirmDeleteAnn(id) {
 async function showReachPublic(id) {
   const a = findAnn(id);
   if (!a) return;
-  const isMock = typeof a.id === 'number';
-  const status = isMock ? getAnnReadStatusMock(a) : await fetchAnnReadStatus(a.id);
+  const status = await fetchAnnReadStatus(a.id);
   const { reach, readUsers, unreadUsers, ackedCount } = status;
 
   // ドーナツ用
@@ -5643,8 +5432,7 @@ async function showReachPublic(id) {
 async function showReach(id) {
   const a = findAnn(id);
   if (!a) return;
-  const isMock = typeof a.id === 'number';
-  const status = isMock ? getAnnReadStatusMock(a) : await fetchAnnReadStatus(a.id);
+  const status = await fetchAnnReadStatus(a.id);
   const { reach, readUsers, unreadUsers, ackedCount } = status;
 
   // ドーナツチャート用
@@ -5768,7 +5556,7 @@ function closeReach() {
 
 async function sendReminder(id) {
   const a = findAnn(id);
-  if (!a || typeof a.id === 'number') { showToast('🔔 未読者にリマインダーを送信しました（モック）'); return; } // モックは対象外
+  if (!a) return;
   await openNotifySendConfirm({
     title: '🔔 未読リマインダーを送信',
     targetLabel: '未読の対象者',
@@ -5797,8 +5585,7 @@ async function runSendUnreadReminder(targetType, targetId) {
 async function exportAnnCsv(id) {
   const a = findAnn(id);
   if (!a) return;
-  const isMock = typeof a.id === 'number';
-  const status = isMock ? getAnnReadStatusMock(a) : await fetchAnnReadStatus(a.id);
+  const status = await fetchAnnReadStatus(a.id);
   const { reach, ackedCount } = status;
 
   const cat = getCat(a.category);
@@ -5830,7 +5617,7 @@ async function exportAnnCsv(id) {
     const isRead = readCodes.has(u.id);
     const isAcked = !!ackedInfo.get(u.id);
     return [
-      u.driverNo || u.id, u.name, isMock ? u.team : getTeamLabel(u.team),
+      u.driverNo || u.id, u.name, getTeamLabel(u.team),
       isRead ? '既読' : '未読',
       a.mustRead ? (isAcked ? '確認済' : '未確認') : '—',
     ];
@@ -6246,16 +6033,15 @@ function renderChatTab() {
 // ログイン時(全ロール共通)に開始する manuals 全件リスナー。ドライバー・管理者どちらの
 // 一覧表示もこの1本のミラーを共有する(reportsの管理者専用リスナーとは異なる設計)。
 // ログイン時に開始し、全ロール共通でannouncements(実データ)を購読する。
-// MOCK_ANNOUNCEMENTS(初期表示コンテンツ)と連結してannouncements配列を再構築する。
+// スナップショットの内容でannouncements配列を丸ごと置き換える。
 function attachAnnouncementsListener() {
   if (announcementsUnsub) { announcementsUnsub(); announcementsUnsub = null; }
   announcementsUnsub = fbDb.collection('announcements').orderBy('createdAt', 'desc')
     .onSnapshot(snap => {
-      const real = snap.docs.map(d => {
+      announcements = snap.docs.map(d => {
         const data = d.data();
         return { id: d.id, ...data, from: data.authorName || '管理者' };
       });
-      announcements = [...real, ...MOCK_ANNOUNCEMENTS];
 
       const tabEl = document.getElementById('tab-announcements');
       const isActive = tabEl && tabEl.classList.contains('active');
@@ -8482,10 +8268,10 @@ function showLoginScreen() {
   // teams関連のリスナーも同様に必ずdetach(teams配列自体はフォールバック値のまま保持してよい)
   if (teamsUnsub) { teamsUnsub(); teamsUnsub = null; }
   teamsLoaded = false;
-  // announcements関連のリスナー・キャッシュも同様に必ずdetach/クリア(MOCK_ANNOUNCEMENTSは維持)
+  // announcements関連のリスナー・キャッシュも同様に必ずdetach/クリア
   if (announcementsUnsub) { announcementsUnsub(); announcementsUnsub = null; }
   if (annReadsUnsub) { annReadsUnsub(); annReadsUnsub = null; }
-  announcements = [...MOCK_ANNOUNCEMENTS];
+  announcements = [];
   annCurrentReads = {};
   annAllDrivers = [];
   annReachCache = {};
