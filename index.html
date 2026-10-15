@@ -2606,10 +2606,16 @@ const APP_VERSION = '0.4.7';
    Firestore スキーマ: teams/{teamId}
      - code        : 'A'〜'I'（恒久的な班コード。変更しない）
      - leaderName  : 班長氏名（異動時にこの値だけ更新すればアプリ全体の表示に反映される）
-     - label       : 班の呼称（現在の班長名ベース。team_i のみ機能名）
-     - displayName : UI表示用文字列（下のmapで自動生成）
+     - label       : 班の呼称（現在の班長名ベース。team_i のみ「管理者班」）
+     - displayName : UI表示用文字列（下のmapで自動生成。team_i は「I班（…）」を付けず label のまま）
    ※ team_id 自体（team_a〜team_i）は恒久キー。班長交代があっても id は変更しない。
       表示だけを変えたい場合は leaderName / label を更新するだけでよい。 */
+
+// 管理者班(v0.4.8で「安全指導班」から変更)。管理者権限(role=='admin')を持つアカウントだけが
+// 閲覧・投稿できるチャンネル。権限は呼称ではなくこのIDで判定する(firestore.rules の isAdminRoom()と対応)。
+// 班編成管理で呼称を変えても権限は変わらない。所属班(users.team)は判定に使わない
+const ADMIN_ROOM_ID = 'team_i';
+
 // teams はログイン時に attachTeamsListener() で Firestore(teams コレクション)を
 // onSnapshotミラーする。初期値はリスナー着信前のフォールバック表示用モック。
 let teams = [
@@ -2622,10 +2628,10 @@ let teams = [
   { id:'team_f', code:'F',  leaderName:'小林',  label:'小林班' },
   { id:'team_g', code:'G',  leaderName:'土井',  label:'土井班' },
   { id:'team_h', code:'H',  leaderName:'熊谷',  label:'熊谷班' },
-  { id:'team_i', code:'I',  leaderName:null,   label:'安全指導班' },
+  { id:'team_i', code:'I',  leaderName:null,   label:'管理者班' },
 ].map(t => ({
   ...t,
-  displayName: t.id === 'all' ? '全員' : `${t.code}班（${t.label}）`,
+  displayName: t.id === 'all' ? '全員' : t.id === ADMIN_ROOM_ID ? t.label : `${t.code}班（${t.label}）`,
 }));
 let teamsUnsub = null;    // teamsコレクションリスナーのunsubscribe
 let teamsLoaded = false;  // 初回スナップショット受信済みか(班編成管理・プロフィールのローディング判定用)
@@ -3305,6 +3311,7 @@ function canViewChannel(id) {
   if (!fbUser) return false;
   if (id === 'general' || id === 'safety') return true;
   if (fbUser.role === 'admin') return true;
+  if (id === ADMIN_ROOM_ID) return false; // 管理者班は管理者のみ(所属班が team_i でも乗務員は不可)
   return fbUser.team === id;
 }
 
@@ -3651,9 +3658,14 @@ function closeUserMenu() {
 function openProfileEdit() {
   closeUserMenu();
   if (!fbUser) return;
-  // team_i(安全指導班)を含む全班を選択肢にする。'未設定'は一般ユーザーには出さない
-  // (firestore.rulesのteam自己更新ホワイトリストがteam_a〜team_iのみでnullを許可しないため)
-  const teamOptions = teams.filter(t => t.id !== 'all');
+  // 班A〜Hを選択肢にする。管理者班(team_i)は所属で入る班ではないため出さない(v0.4.8)。
+  // '未設定'も選べない(firestore.rulesのteam自己更新ホワイトリストがteam_a〜team_hのみでnullを許可しないため)
+  const teamOptions = teams.filter(t => t.id !== 'all' && t.id !== ADMIN_ROOM_ID);
+  // 現在の所属が選択肢に無い(班なし=null、または管理者アカウントの team_i)場合は、その状態を
+  // 先頭に「変更しない」として選択しておく。無いと先頭のA班が選ばれた状態になり、パスワード変更だけの
+  // つもりで保存しても所属班がA班に書き換わってしまう。value="" は saveProfile() で現在値に戻る
+  const keepCurrentTeam = !teamOptions.some(t => t.id === fbUser.team);
+  const currentTeamLabel = fbUser.team ? getTeamLabel(fbUser.team) : '班なし';
   openModal(`
     <div class="modal-card">
       <div class="modal-header">
@@ -3664,13 +3676,14 @@ function openProfileEdit() {
         <div style="text-align:center;padding:16px 0 20px">
           <div class="user-menu-av" style="width:60px;height:60px;font-size:24px;margin:0 auto 10px">${escHtml(fbUser.name?.[0] || '?')}</div>
           <div style="font-weight:700;font-size:17px;color:var(--navy)">${escHtml(fbUser.name || '')}</div>
-          <div style="font-size:12px;color:var(--text-muted);margin-top:3px">${escHtml(getTeamLabel(fbUser.team))} · ${escHtml(fbUser.code)}</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:3px">${escHtml(currentTeamLabel)} · ${escHtml(fbUser.code)}</div>
         </div>
         <div class="divider"></div>
 
         <div class="form-group">
           <label class="form-label">所属班</label>
           <select id="prof-team" class="input-field">
+            ${keepCurrentTeam ? `<option value="" selected>${escHtml(currentTeamLabel)}（変更しない）</option>` : ''}
             ${teamOptions.map(t => `<option value="${t.id}" ${t.id === fbUser.team ? 'selected' : ''}>${escHtml(t.displayName)}</option>`).join('')}
           </select>
           <p style="font-size:11px;color:var(--text-muted);margin-top:4px">所属班を変更すると、班チャンネルの閲覧範囲が切り替わります</p>
@@ -5662,7 +5675,7 @@ function canWriteToCurrentChannel() {
   if (!fbUser) return false;
   return st.role === 'manager'
     || currentChannel === 'general' || currentChannel === 'safety'
-    || currentChannel === fbUser.team;
+    || (currentChannel === fbUser.team && currentChannel !== ADMIN_ROOM_ID); // 管理者班は管理者のみ
 }
 
 // チャンネル切替・タブ再表示のたびに書き込み可否を反映する(v0.2: 閲覧は全班に開放、書き込みは所属班のみ)
@@ -5694,14 +5707,14 @@ async function sendMsg() {
       deletedBy: null,
       deletedAt: null,
     });
-    // lastMessageを併記更新（このチャンネルが見えるユーザーなら誰でも更新可）
-    await fbDb.collection('channels').doc(currentChannel).update({
-      lastMessage: {
-        text,
-        senderName: fbUser.name,
-        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-      },
-    });
+    // lastMessageを併記更新（このチャンネルが見えるユーザーなら誰でも更新可）。
+    // 管理者班は createdAt だけを書く(v0.4.8)。channels ドキュメントは乗務員も読むチャンネル一覧に
+    // 含まれるため、本文・送信者名を書くと管理者班の中身が乗務員に漏れる。新着判定は createdAt しか
+    // 見ていないので動作は変わらない(firestore.rules でも createdAt 以外のキーを拒否している)
+    const lastMessage = currentChannel === ADMIN_ROOM_ID
+      ? { createdAt: firebase.firestore.FieldValue.serverTimestamp() }
+      : { text, senderName: fbUser.name, createdAt: firebase.firestore.FieldValue.serverTimestamp() };
+    await fbDb.collection('channels').doc(currentChannel).update({ lastMessage });
     // v0.4 自分の発言で自分のタブ・チップが光らないよう、送信時も既読にする
     markBadgeSeen('chat.' + currentChannel);
     inp.value = '';
@@ -5758,19 +5771,40 @@ function switchCh(id, name) {
 // チャンネルIDは 'general'/'safety'（全員向け）または teams[].id（'team_a'〜'team_i'）
 // そのままteamIdとして扱えるため、固定マッピング辞書は不要
 function getChannelMembers(channelId) {
+  // 管理者班のメンバーは乗務員ではなく管理者権限を持つアカウント(メンテ用コードは除外済み)
+  if (channelId === ADMIN_ROOM_ID) return chatAdmins;
   const teamId = (channelId === 'general' || channelId === 'safety') ? 'all' : channelId;
   return getTargetDrivers(teamId);
 }
 
-// annAllDrivers が未取得のまま描画されたら1回だけ取得し、取得後に統計・メンバー数を描き直す
-// (取得済みのPromiseを保持して、ドライバー0名でも再取得のループにならないようにする)
+// 管理者班のメンバー表示用(role=='admin')。メンテ用の管理者コード(MASTER_EXCLUDED_CODES)は
+// 表示上のメンバー構成から除外する(閲覧・投稿は通常の管理者と同じくできる。除外するのは表示だけ)。
+// 判定は乗務員コードの完全一致で、氏名には依存しない。users.list は admin 限定だが、
+// この一覧を使うメンバー表示は管理者専用なので問題ない
+let chatAdmins = [];
+async function fetchChatAdmins() {
+  try {
+    const snap = await fbDb.collection('users').where('role', '==', 'admin').get();
+    chatAdmins = snap.docs.map(d => ({ code: d.id, ...d.data() }))
+      .filter(u => !MASTER_EXCLUDED_CODES.includes(u.code));
+  } catch (e) {
+    console.error('管理者一覧取得エラー:', e);
+  }
+}
+
+// 母数が未取得のまま描画されたら1回だけ取得し、取得後に統計・メンバー数を描き直す
+// (取得済みのPromiseを保持して、0名でも再取得のループにならないようにする。ログアウトで解除)
 let chatDriversFetch = null;
+let chatAdminsFetch = null;
 function ensureChatDriversLoaded() {
-  if (st.role !== 'manager' || annAllDrivers.length > 0 || chatDriversFetch) return;
-  chatDriversFetch = fetchAnnAllDrivers().then(() => {
-    updateChatMgrStats();
-    updateChannelMembersCount();
-  });
+  if (st.role !== 'manager') return;
+  const redraw = () => { updateChatMgrStats(); updateChannelMembersCount(); };
+  if (annAllDrivers.length === 0 && !chatDriversFetch) {
+    chatDriversFetch = fetchAnnAllDrivers().then(redraw);
+  }
+  if (currentChannel === ADMIN_ROOM_ID && !chatAdminsFetch) {
+    chatAdminsFetch = fetchChatAdmins().then(redraw);
+  }
 }
 
 // チャンネルチップを teams マスターから動的生成
@@ -5782,7 +5816,9 @@ function renderChannelChips() {
   if (!host) return;
   const channelList = [
     { id:'general', label:'全体連絡' },
-    ...teams.filter(t => t.id !== 'all').map(t => ({ id:t.id, label:t.displayName })),
+    // 管理者班は管理者にだけ出す(v0.4.8。乗務員はルール上も読めない)
+    ...teams.filter(t => t.id !== 'all' && (t.id !== ADMIN_ROOM_ID || canViewChannel(t.id)))
+      .map(t => ({ id:t.id, label:t.displayName })),
     { id:'safety', label:'安全報告' },
   ];
   const unreadIds = new Set(unreadChatChannelIds());
@@ -5843,7 +5879,12 @@ function updateChannelMembersCount() {
 }
 
 async function showChannelMembers() {
-  if (annAllDrivers.length === 0) await fetchAnnAllDrivers();
+  if (currentChannel === ADMIN_ROOM_ID) {
+    if (!chatAdminsFetch) chatAdminsFetch = fetchChatAdmins();
+    await chatAdminsFetch;
+  } else if (annAllDrivers.length === 0) {
+    await fetchAnnAllDrivers();
+  }
   const members = getChannelMembers(currentChannel);
   const channelName = document.getElementById('ch-title').textContent;
   document.getElementById('ch-members-title').textContent = `# ${channelName} のメンバー（${members.length}人）`;
@@ -5860,7 +5901,7 @@ async function showChannelMembers() {
         <div class="msg-av" style="background:#5B8FE0;width:36px;height:36px">${escHtml((u.name || '?')[0])}</div>
         <div style="flex:1;min-width:0">
           <div style="font-weight:700;font-size:14px;color:var(--navy)">${escHtml(u.name)}</div>
-          <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${escHtml(getTeamLabel(u.team))} · ${escHtml(u.code)}</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${escHtml(u.role === 'admin' ? '管理者' : getTeamLabel(u.team))} · ${escHtml(u.code)}</div>
         </div>
         ${isActive
           ? '<span style="font-size:10px;background:rgba(31,157,85,.12);color:var(--safe);padding:3px 8px;border-radius:999px;font-weight:700">● 発言あり</span>'
@@ -7163,7 +7204,8 @@ async function submitFb() {
   const isAnon = st.fbAnonymous;
   const senderName = fbUser.name;
   // 報告書上の所属表示は「投稿時点」のスナップショットとして固定保存する（班長交代後も過去記録は変えない）
-  const senderTeam = getTeam(fbUser.team).displayName;
+  // 班なし(team:null)は getTeam() が先頭の「全員」を返してしまうため明示する(v0.4.8)
+  const senderTeam = fbUser.team ? getTeam(fbUser.team).displayName : '班なし';
   const visibility = st.fbShareRequested ? 'pending_public' : 'private';
 
   const btn = document.getElementById('fb-btn');
@@ -8119,6 +8161,8 @@ function showLoginScreen() {
   annCurrentReads = {};
   annAllDrivers = [];
   chatDriversFetch = null;
+  chatAdmins = [];
+  chatAdminsFetch = null;
   annReachCache = {};
   myAnnAcks = {};
   st.annDetailId = null;
@@ -8154,6 +8198,9 @@ function showAppScreen() {
    AAAAA/BBBBB/CCCCC(メンテナンス用管理者コード)はこの画面の影響を一切受けない(一覧からも除外)。
    新規登録はFirestoreドキュメントの作成のみ。Authアカウントは別途(CSV一括投入 or 手動)対応が必要。 */
 
+// メンテナンス用の管理者コード。乗務員マスタの一覧と、チャット管理者班のメンバー表示
+// (fetchChatAdmins()、v0.4.8)から除外する。権限上は通常の管理者と同じ扱いで、除外するのは表示だけ。
+// 判定はこの定数との完全一致のみ(氏名には依存しない)
 const MASTER_EXCLUDED_CODES = ['AAAAA', 'BBBBB', 'CCCCC'];
 
 let umAllUsers = [];      // openUserManagement中に取得した全ユーザーのキャッシュ(メンテナンス用コード除外済み)
@@ -8419,7 +8466,10 @@ async function changeUserRole(code) {
 /* ===== 班編成管理（管理者のみ） =====
    teamsは既にattachTeamsListener()による生きたミラーなので、個別フェッチ不要。
    保存後はonSnapshotで自動的に全画面(チャット・プロフィール・この画面自身)へ反映される。
-   team_a〜team_hは班長名(leaderName)を、team_i(安全指導班)は個人班長を持たないため呼称(label)を直接編集する。 */
+   team_a〜team_hは班長名(leaderName)を、team_i(管理者班)は個人班長を持たないため呼称(label)を直接編集する。
+   管理者班の呼称を変えても、閲覧・投稿の権限は team_i というID(ADMIN_ROOM_ID / firestore.rules の
+   isAdminRoom())で判定されるため変わらない。表示名(displayName)は「I班（…）」を付けず呼称のまま。
+   なお channels/team_i.name はこの画面では更新しない(画面のチップは teams.displayName を表示する)。 */
 
 function openTeamManagement() {
   closeUserMenu();
@@ -8443,14 +8493,14 @@ function renderTeamManagementList() {
   if (rows.length === 0) return `<p style="font-size:13px;color:var(--text-muted)">班データがありません</p>`;
 
   return rows.map(t => {
-    const isFunctionalTeam = t.id === 'team_i'; // 個人班長を持たない機能班
+    const isFunctionalTeam = t.id === ADMIN_ROOM_ID; // 個人班長を持たない管理者班
     return `
       <div class="card" style="margin-bottom:8px;padding:12px">
-        <div style="font-weight:700;color:var(--navy);margin-bottom:8px">${escHtml(t.code)}班 — 現在: ${escHtml(t.displayName || t.label || '')}</div>
+        <div style="font-weight:700;color:var(--navy);margin-bottom:8px">${isFunctionalTeam ? '管理者専用チャンネル' : `${escHtml(t.code)}班`} — 現在: ${escHtml(t.displayName || t.label || '')}</div>
         <div class="form-group" style="margin-bottom:8px">
           <label class="form-label">${isFunctionalTeam ? '呼称' : '班長名'}</label>
           <input id="tm-input-${t.id}" class="input-field" value="${escHtml(isFunctionalTeam ? (t.label || '') : (t.leaderName || ''))}"
-                 placeholder="${isFunctionalTeam ? '例: 安全指導班' : '例: 中尾'}">
+                 placeholder="${isFunctionalTeam ? '例: 管理者班' : '例: 中尾'}">
         </div>
         <button class="btn btn-primary" style="width:100%" onclick="saveTeamEdit('${t.id}')">保存する</button>
       </div>
@@ -8473,14 +8523,14 @@ async function saveTeamEdit(teamId) {
   }
 
   // seed-teams.js と同じ計算式で label/displayName を再構成する(以後の乖離を防ぐ)
-  const isFunctionalTeam = teamId === 'team_i';
+  const isFunctionalTeam = teamId === ADMIN_ROOM_ID;
   const leaderName = isFunctionalTeam ? null : value;
   const label = isFunctionalTeam ? value : `${value}班`;
-  const displayName = `${team.code}班（${label}）`;
+  const displayName = isFunctionalTeam ? label : `${team.code}班（${label}）`;
 
   try {
     await fbDb.collection('teams').doc(teamId).update({ leaderName, label, displayName });
-    showToast(`✓ ${team.code}班の表示を更新しました`);
+    showToast(`✓ ${isFunctionalTeam ? displayName : team.code + '班'}の表示を更新しました`);
     // teamsローカル配列はonSnapshotで追って更新されるが、モーダルは即時反映のため明示的に再描画
     document.getElementById('tm-list').innerHTML = renderTeamManagementList();
   } catch (err) {
