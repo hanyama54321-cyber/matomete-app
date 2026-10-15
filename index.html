@@ -2525,37 +2525,7 @@ header {
         <div class="section-title"><span class="title-bar"></span>ゲーム管理</div>
         <div class="admin-banner">
           <span>🛠️</span>
-          <span>管理者モード — 通知登録者の管理・コンテンツ公開設定</span>
-        </div>
-
-        <!-- 通知登録者数カード -->
-        <div class="card" style="margin-bottom:12px">
-          <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
-            <span style="font-size:28px">🔔</span>
-            <div style="flex:1">
-              <div style="font-weight:700;font-size:14px;color:var(--navy)">公開通知 登録状況</div>
-              <div style="font-size:11px;color:var(--text-sub)">ゲームコーナー公開時に通知するメンバー</div>
-            </div>
-          </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
-            <div class="reach-stat-card" style="padding:12px 8px">
-              <div class="reach-stat-num" style="color:var(--primary)" id="game-reg-count">6</div>
-              <div class="reach-stat-lbl">登録済み</div>
-            </div>
-            <div class="reach-stat-card" style="padding:12px 8px">
-              <div class="reach-stat-num" style="color:var(--text-muted)" id="game-unreg-count">2</div>
-              <div class="reach-stat-lbl">未登録</div>
-            </div>
-          </div>
-          <div class="user-list-wrap" style="margin-bottom:12px">
-            <div class="user-list-header"><span>🔔 通知登録済みメンバー</span></div>
-            <div id="game-reg-list"></div>
-          </div>
-          <div class="user-list-wrap" style="margin-bottom:12px">
-            <div class="user-list-header"><span>○ 未登録メンバー</span></div>
-            <div id="game-unreg-list"></div>
-          </div>
-          <button class="btn btn-primary" style="width:100%" onclick="gameNotifyAll()">📣 全員に公開告知を送る</button>
+          <span>管理者モード — コンテンツ公開設定</span>
         </div>
 
         <!-- コンテンツ公開スケジュール管理 -->
@@ -8059,44 +8029,6 @@ function renderGameTab() {
 }
 
 function renderGameManagerView() {
-  const drivers = users.filter(u => u.role === 'driver');
-  const registered   = drivers.filter(u => gameNotifRegistered.has(u.id));
-  const unregistered = drivers.filter(u => !gameNotifRegistered.has(u.id));
-
-  // 件数バッジ
-  const regCountEl   = document.getElementById('game-reg-count');
-  const unregCountEl = document.getElementById('game-unreg-count');
-  if (regCountEl)   regCountEl.textContent   = registered.length;
-  if (unregCountEl) unregCountEl.textContent = unregistered.length;
-
-  // 登録済みリスト
-  const regList = document.getElementById('game-reg-list');
-  if (regList) regList.innerHTML = registered.length === 0
-    ? '<div style="padding:12px;font-size:13px;color:var(--text-muted)">（なし）</div>'
-    : registered.map(u => `
-        <div class="user-row">
-          <div class="msg-av" style="background:linear-gradient(135deg,#0D3D9E,#3F8CEF)">${u.name[0]}</div>
-          <div class="user-info">
-            <div class="user-name">${escHtml(u.name)}</div>
-            <div class="user-meta">${escHtml(getTeamLabel(u.team))}</div>
-          </div>
-          <span class="user-status read">🔔 登録済</span>
-        </div>`).join('');
-
-  // 未登録リスト
-  const unregList = document.getElementById('game-unreg-list');
-  if (unregList) unregList.innerHTML = unregistered.length === 0
-    ? '<div style="padding:12px;font-size:13px;color:var(--text-muted)">（全員登録済み）</div>'
-    : unregistered.map(u => `
-        <div class="user-row">
-          <div class="msg-av" style="background:#9AA7BA">${u.name[0]}</div>
-          <div class="user-info">
-            <div class="user-name">${escHtml(u.name)}</div>
-            <div class="user-meta">${escHtml(getTeamLabel(u.team))}</div>
-          </div>
-          <span class="user-status unread">○ 未登録</span>
-        </div>`).join('');
-
   // 公開スケジュール
   const schedList = document.getElementById('game-schedule-list');
   if (schedList) schedList.innerHTML = gameContents.map(g => {
@@ -8111,13 +8043,6 @@ function renderGameManagerView() {
         <span style="font-size:11px;font-weight:700;padding:4px 9px;border-radius:999px;background:${s.bg};color:${s.color};white-space:nowrap">${s.label}</span>
       </div>`;
   }).join('');
-}
-
-function gameNotifyAll() {
-  const drivers = users.filter(u => u.role === 'driver');
-  drivers.forEach(u => gameNotifRegistered.add(u.id));
-  renderGameManagerView();
-  showToast('📣 全ドライバーに告知を送信しました（モック）');
 }
 
 /* ===== setRole・switchTab への統合フック ===== */
