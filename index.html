@@ -2870,10 +2870,12 @@ const getTeam  = id => teams.find(t => t.id === id) || teams[0];
 const getUser  = id => users.find(u => u.id === id);
 
 // 対象グループに属するドライバーを取得（現在の呼び出し元はチャットのgetChannelMembers()のみ）
+// 母数は周知の annAllDrivers を流用する(v0.4.6でモックusers配列から置換)。管理者ログイン直後と
+// お知らせのスナップショットごとに取り直されており、3系統ある全ドライバーキャッシュの中で最も新しいため。
+// users.list は admin 限定だが、チャットのメンバー表示は管理者専用なので問題ない
 function getTargetDrivers(targetId) {
-  const drivers = users.filter(u => u.role === 'driver');
-  if (targetId === 'all') return drivers;
-  return drivers.filter(u => u.team === targetId);
+  if (targetId === 'all') return annAllDrivers;
+  return annAllDrivers.filter(u => u.team === targetId);
 }
 
 // announcements配列からidで検索する（data属性経由で数値化されても拾えるよう文字列化して比較する）
@@ -5641,6 +5643,14 @@ function fmtMsgTime(ts) {
   return d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0');
 }
 
+// メッセージのcreatedAtを「月/日 時:分」(例: 10/14 15:32)に変換する(管理者統計の「最終投稿」用)
+// 基準は fmtMsgTime と同じ端末ローカル。pending write の間は空文字を返す
+function fmtMsgDateTime(ts) {
+  if (!ts || typeof ts.toDate !== 'function') return '';
+  const d = ts.toDate();
+  return `${d.getMonth() + 1}/${d.getDate()} ${fmtMsgTime(ts)}`;
+}
+
 // Date を端末ローカルのカレンダー日 "YYYY-MM-DD" に変換する（日付セパレータの比較キー）
 // jstDateStr() とは別物: あちらは計測用に Asia/Tokyo 固定、こちらは時刻表示(fmtMsgTime)と
 // 基準を揃えるため端末ローカル。混ぜると「12:00 のメッセージなのに昨日」といったズレが出る
@@ -5809,6 +5819,17 @@ function getChannelMembers(channelId) {
   return getTargetDrivers(teamId);
 }
 
+// annAllDrivers が未取得のまま描画されたら1回だけ取得し、取得後に統計・メンバー数を描き直す
+// (取得済みのPromiseを保持して、ドライバー0名でも再取得のループにならないようにする)
+let chatDriversFetch = null;
+function ensureChatDriversLoaded() {
+  if (st.role !== 'manager' || annAllDrivers.length > 0 || chatDriversFetch) return;
+  chatDriversFetch = fetchAnnAllDrivers().then(() => {
+    updateChatMgrStats();
+    updateChannelMembersCount();
+  });
+}
+
 // チャンネルチップを teams マスターから動的生成
 // 全チャンネル（固定2つ＋9班）をボタンとして並べ、.wrap で折り返し表示する
 // （横スクロールにせず、どの班も1タップで直接切替できるようにする）
@@ -5841,12 +5862,14 @@ function updateChatMgrStats() {
   if (!host) return;
   if (st.role !== 'manager') { host.classList.add('hidden'); return; }
 
+  ensureChatDriversLoaded();
   const activeMsgs = chatMessages.filter(m => !m.deleted);
   const members = getChannelMembers(currentChannel);
-  const activeUserNames = new Set(activeMsgs.map(m => m.senderName));
-  const activeMembers = members.filter(u => activeUserNames.has(u.name)).length;
+  // 氏名ではなく乗務員コードで照合する(同姓の乗務員を取り違えないため)
+  const activeCodes = new Set(activeMsgs.map(m => m.senderUid));
+  const activeMembers = members.filter(u => activeCodes.has(u.code)).length;
   const lastMsg = activeMsgs[activeMsgs.length - 1];
-  const lastTime = lastMsg ? (fmtMsgTime(lastMsg.createdAt) || '送信中...') : '—';
+  const lastTime = lastMsg ? (fmtMsgDateTime(lastMsg.createdAt) || '送信中...') : '—';
 
   host.classList.remove('hidden');
   host.innerHTML = `
@@ -5870,29 +5893,31 @@ function updateChannelMembersCount() {
   const countEl = document.getElementById('ch-members-count');
   if (!btn || !countEl) return;
   if (st.role !== 'manager') { btn.classList.add('hidden'); return; }
+  ensureChatDriversLoaded();
   const members = getChannelMembers(currentChannel);
   btn.classList.remove('hidden');
   countEl.textContent = `${members.length}人`;
 }
 
-function showChannelMembers() {
+async function showChannelMembers() {
+  if (annAllDrivers.length === 0) await fetchAnnAllDrivers();
   const members = getChannelMembers(currentChannel);
   const channelName = document.getElementById('ch-title').textContent;
   document.getElementById('ch-members-title').textContent = `# ${channelName} のメンバー（${members.length}人）`;
 
-  // チャンネル内のメッセージ送信者名一覧（アクティブ判定）
+  // チャンネル内のメッセージ送信者の乗務員コード一覧（アクティブ判定。氏名だと同姓を取り違える）
   const msgs = chatMessages.filter(m => !m.deleted);
-  const activeNames = new Set(msgs.map(m => m.senderName));
+  const activeCodes = new Set(msgs.map(m => m.senderUid));
 
   const list = document.getElementById('ch-members-list');
   list.innerHTML = members.map(u => {
-    const isActive = activeNames.has(u.name);
+    const isActive = activeCodes.has(u.code);
     return `
       <div style="display:flex;align-items:center;gap:12px;padding:11px 4px;border-bottom:1px solid var(--border)">
-        <div class="msg-av" style="background:#5B8FE0;width:36px;height:36px">${u.name[0]}</div>
+        <div class="msg-av" style="background:#5B8FE0;width:36px;height:36px">${escHtml((u.name || '?')[0])}</div>
         <div style="flex:1;min-width:0">
           <div style="font-weight:700;font-size:14px;color:var(--navy)">${escHtml(u.name)}</div>
-          <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${escHtml(getTeamLabel(u.team))} · ${escHtml(u.driverNo)}</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${escHtml(getTeamLabel(u.team))} · ${escHtml(u.code)}</div>
         </div>
         ${isActive
           ? '<span style="font-size:10px;background:rgba(31,157,85,.12);color:var(--safe);padding:3px 8px;border-radius:999px;font-weight:700">● 発言あり</span>'
@@ -8187,6 +8212,7 @@ function showLoginScreen() {
   announcements = [];
   annCurrentReads = {};
   annAllDrivers = [];
+  chatDriversFetch = null;
   annReachCache = {};
   myAnnAcks = {};
   st.annDetailId = null;
