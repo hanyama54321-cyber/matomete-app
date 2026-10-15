@@ -2761,6 +2761,7 @@ let kytAllDrivers = [];           // 管理者向け: 全ドライバーキャ�
 let kytCompletionsCache = {};     // 管理者向け one-shotキャッシュ: { [code]: { [scenarioId]: {score,total} } }
 let kytMyCompletions = {};        // ドライバー向け one-shotキャッシュ: { [scenarioId]: {score,total} }
 let kytExpandedCode = null;       // 管理者ダッシュボードのアコーディオン展開中コード(同時に1件のみ)
+let kytMemberListOpen = false;    // 「メンバー別 完了状況」の開閉(初期は閉。行展開の再描画でも保つため変数で持つ)
 
 /* ===== チャットメッセージ（Firestore接続） =====
    Firestore スキーマ: channels/{channelId}/messages/{messageId}
@@ -6803,11 +6804,13 @@ function renderKytManagerDashboard() {
       </div>
     </div>
     <div class="user-list-wrap" style="margin-bottom:14px">
-      <div class="user-list-header">
-        <span>👥 メンバー別 完了状況</span>
-        <button class="btn-csv" onclick="exportKytCsv()" style="padding:4px 10px;font-size:11px">📄 CSV</button>
+      <div class="user-list-header" role="button" tabindex="0" aria-expanded="${kytMemberListOpen}"
+        onclick="toggleKytMemberList()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleKytMemberList()}"
+        style="cursor:pointer;${kytMemberListOpen ? '' : 'border-bottom:none'}">
+        <span>${kytMemberListOpen ? '▾' : '▸'} 👥 メンバー別 完了状況（${userStats.length}名）</span>
+        <button class="btn-csv" onclick="event.stopPropagation();exportKytCsv()" onkeydown="event.stopPropagation()" style="padding:4px 10px;font-size:11px">📄 CSV</button>
       </div>
-      ${userStats.map(u => `
+      ${!kytMemberListOpen ? '' : userStats.map(u => `
         <div class="kyt-driver-row" onclick="toggleKytDriverRow('${u.code}')"
           style="padding:10px 12px;border-bottom:1px solid var(--border);cursor:pointer">
           <div style="display:flex;align-items:center;gap:8px">
@@ -6841,6 +6844,12 @@ function renderKytManagerDashboard() {
 // メンバー別一覧のアコーディオン展開切替(同時に1件のみ展開、キャッシュ済みデータのみで再描画)
 function toggleKytDriverRow(code) {
   kytExpandedCode = kytExpandedCode === code ? null : code;
+  renderKytManagerDashboard();
+}
+
+// 「メンバー別 完了状況」全体の開閉切替(キャッシュ済みデータのみで再描画)
+function toggleKytMemberList() {
+  kytMemberListOpen = !kytMemberListOpen;
   renderKytManagerDashboard();
 }
 
@@ -8201,6 +8210,7 @@ function showLoginScreen() {
   kytCompletionsCache = {};
   kytMyCompletions = {};
   kytExpandedCode = null;
+  kytMemberListOpen = false;
   // teams関連のリスナーも同様に必ずdetach(teams配列自体はフォールバック値のまま保持してよい)
   if (teamsUnsub) { teamsUnsub(); teamsUnsub = null; }
   teamsLoaded = false;
