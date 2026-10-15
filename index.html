@@ -2265,7 +2265,6 @@ header {
             style="margin-left:auto;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 10px;font-size:11px;font-weight:700;color:var(--navy);cursor:pointer;display:inline-flex;align-items:center;gap:4px;min-height:28px">
             👥 <span id="ch-members-count">メンバー</span>
           </button>
-          <span id="ch-online-badge" class="tag" style="margin-left:auto;font-size:10px;background:rgba(31,157,85,.1);color:var(--safe);border:1px solid rgba(31,157,85,.3)">● オンライン 5名</span>
         </div>
         <div id="chat-msgs" class="chat-messages hide-scroll"></div>
         <div id="chat-readonly-notice" class="hidden" style="padding:8px 16px;font-size:12px;color:var(--text-muted);background:var(--surface2);border-top:1px solid var(--border)">
@@ -5954,7 +5953,6 @@ async function modDeleteMsg(id) {
 function renderChatTab() {
   const isManager = st.role === 'manager';
   document.getElementById('chat-admin-banner').classList.toggle('hidden', !isManager);
-  document.getElementById('ch-online-badge').classList.toggle('hidden', isManager);
   if (isManager) {
     updateChatMgrStats();
     updateChannelMembersCount();
