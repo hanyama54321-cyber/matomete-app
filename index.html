@@ -2626,7 +2626,6 @@ let teams = [
 ].map(t => ({
   ...t,
   displayName: t.id === 'all' ? '全員' : `${t.code}班（${t.label}）`,
-  count: 0, // recalcTeamCounts() で users から動的算出
 }));
 let teamsUnsub = null;    // teamsコレクションリスナーのunsubscribe
 let teamsLoaded = false;  // 初回スナップショット受信済みか(班編成管理・プロフィールのローディング判定用)
@@ -2635,10 +2634,9 @@ let teamsLoaded = false;  // 初回スナップショット受信済みか(班�
 function attachTeamsListener() {
   if (teamsUnsub) { teamsUnsub(); teamsUnsub = null; }
   teamsUnsub = fbDb.collection('teams').orderBy('order').onSnapshot(snap => {
-    const all = { id:'all', code:null, leaderName:null, label:'全員', displayName:'全員', count:0 };
-    teams = [all, ...snap.docs.map(d => ({ id: d.id, ...d.data(), count: 0 }))];
+    const all = { id:'all', code:null, leaderName:null, label:'全員', displayName:'全員' };
+    teams = [all, ...snap.docs.map(d => ({ id: d.id, ...d.data() }))];
     teamsLoaded = true;
-    recalcTeamCounts();
     renderChannelChips();
     refreshUserMenuHeader();
     const tmList = document.getElementById('tm-list');
@@ -2650,32 +2648,6 @@ function attachTeamsListener() {
 }
 
 const getTeamLabel = id => (teams.find(t => t.id === id) || {}).label || id || '—';
-
-// 班人数を users から動的算出（Firestore実装では users コレクションを team で集計するクエリに置換）
-function recalcTeamCounts() {
-  const drivers = users.filter(u => u.role === 'driver');
-  teams.forEach(t => {
-    t.count = t.id === 'all' ? drivers.length : drivers.filter(u => u.team === t.id).length;
-  });
-}
-
-// ユーザー一覧（既読率計算に使用）／ team は teams[].id（team_a〜team_i）を参照
-const users = [
-  { id:'u01', name:'南野',   team:'team_d', driverNo:'D-12', role:'driver' },
-  { id:'u02', name:'佐藤',   team:'team_e', driverNo:'E-08', role:'driver' },
-  { id:'u03', name:'鈴木',   team:'team_c', driverNo:'C-05', role:'driver' },
-  { id:'u04', name:'高橋',   team:'team_h', driverNo:'H-11', role:'driver' },
-  { id:'u05', name:'伊藤',   team:'team_a', driverNo:'A-03', role:'driver' },
-  { id:'u06', name:'渡辺',   team:'team_g', driverNo:'G-07', role:'driver' },
-  { id:'u07', name:'山本',   team:'team_e', driverNo:'E-21', role:'driver' },
-  { id:'u08', name:'中村',   team:'team_b', driverNo:'B-14', role:'driver' },
-  { id:'u09', name:'小林',   team:'team_f', driverNo:'F-04', role:'driver' },
-  { id:'u10', name:'土井',   team:'team_g', driverNo:'G-02', role:'driver' },
-  { id:'u11', name:'熊谷',   team:'team_h', driverNo:'H-01', role:'driver' },
-  { id:'u12', name:'安田',   team:'team_i', driverNo:'I-01', role:'driver' },
-  { id:'mgr', name:'田中',   team:null,     driverNo:'—',    role:'manager' },
-];
-recalcTeamCounts();
 
 // カテゴリ（タグ）定義
 const annCategories = [
@@ -2837,7 +2809,6 @@ const diffColor = { '低':'var(--safe)', '中':'var(--primary)', '高':'var(--da
 
 const getCat   = id => annCategories.find(c => c.id === id) || annCategories[4];
 const getTeam  = id => teams.find(t => t.id === id) || teams[0];
-const getUser  = id => users.find(u => u.id === id);
 
 // 対象グループに属するドライバーを取得（現在の呼び出し元はチャットのgetChannelMembers()のみ）
 // 母数は周知の annAllDrivers を流用する(v0.4.6でモックusers配列から置換)。管理者ログイン直後と
