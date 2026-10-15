@@ -2265,7 +2265,6 @@ header {
             style="margin-left:auto;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 10px;font-size:11px;font-weight:700;color:var(--navy);cursor:pointer;display:inline-flex;align-items:center;gap:4px;min-height:28px">
             👥 <span id="ch-members-count">メンバー</span>
           </button>
-          <span id="ch-online-badge" class="tag" style="margin-left:auto;font-size:10px;background:rgba(31,157,85,.1);color:var(--safe);border:1px solid rgba(31,157,85,.3)">● オンライン 5名</span>
         </div>
         <div id="chat-msgs" class="chat-messages hide-scroll"></div>
         <div id="chat-readonly-notice" class="hidden" style="padding:8px 16px;font-size:12px;color:var(--text-muted);background:var(--surface2);border-top:1px solid var(--border)">
@@ -2526,37 +2525,7 @@ header {
         <div class="section-title"><span class="title-bar"></span>ゲーム管理</div>
         <div class="admin-banner">
           <span>🛠️</span>
-          <span>管理者モード — 通知登録者の管理・コンテンツ公開設定</span>
-        </div>
-
-        <!-- 通知登録者数カード -->
-        <div class="card" style="margin-bottom:12px">
-          <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
-            <span style="font-size:28px">🔔</span>
-            <div style="flex:1">
-              <div style="font-weight:700;font-size:14px;color:var(--navy)">公開通知 登録状況</div>
-              <div style="font-size:11px;color:var(--text-sub)">ゲームコーナー公開時に通知するメンバー</div>
-            </div>
-          </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
-            <div class="reach-stat-card" style="padding:12px 8px">
-              <div class="reach-stat-num" style="color:var(--primary)" id="game-reg-count">6</div>
-              <div class="reach-stat-lbl">登録済み</div>
-            </div>
-            <div class="reach-stat-card" style="padding:12px 8px">
-              <div class="reach-stat-num" style="color:var(--text-muted)" id="game-unreg-count">2</div>
-              <div class="reach-stat-lbl">未登録</div>
-            </div>
-          </div>
-          <div class="user-list-wrap" style="margin-bottom:12px">
-            <div class="user-list-header"><span>🔔 通知登録済みメンバー</span></div>
-            <div id="game-reg-list"></div>
-          </div>
-          <div class="user-list-wrap" style="margin-bottom:12px">
-            <div class="user-list-header"><span>○ 未登録メンバー</span></div>
-            <div id="game-unreg-list"></div>
-          </div>
-          <button class="btn btn-primary" style="width:100%" onclick="gameNotifyAll()">📣 全員に公開告知を送る</button>
+          <span>管理者モード — コンテンツ公開設定</span>
         </div>
 
         <!-- コンテンツ公開スケジュール管理 -->
@@ -2628,7 +2597,7 @@ header {
 // ヘッダーバッジ・ユーザーメニュー・アプリ情報画面・利用状況計測(sessions.appVersion)は
 // すべてこの定数を参照する(#version-badge/#um-version-subtitleへは初期化処理でJSから反映、
 // アプリ情報画面・recordSession()は関数内で直接参照)
-const APP_VERSION = '0.4.5';
+const APP_VERSION = '0.4.6';
 
 /* ===== データ ===== */
 
@@ -2657,7 +2626,6 @@ let teams = [
 ].map(t => ({
   ...t,
   displayName: t.id === 'all' ? '全員' : `${t.code}班（${t.label}）`,
-  count: 0, // recalcTeamCounts() で users から動的算出
 }));
 let teamsUnsub = null;    // teamsコレクションリスナーのunsubscribe
 let teamsLoaded = false;  // 初回スナップショット受信済みか(班編成管理・プロフィールのローディング判定用)
@@ -2666,10 +2634,9 @@ let teamsLoaded = false;  // 初回スナップショット受信済みか(班�
 function attachTeamsListener() {
   if (teamsUnsub) { teamsUnsub(); teamsUnsub = null; }
   teamsUnsub = fbDb.collection('teams').orderBy('order').onSnapshot(snap => {
-    const all = { id:'all', code:null, leaderName:null, label:'全員', displayName:'全員', count:0 };
-    teams = [all, ...snap.docs.map(d => ({ id: d.id, ...d.data(), count: 0 }))];
+    const all = { id:'all', code:null, leaderName:null, label:'全員', displayName:'全員' };
+    teams = [all, ...snap.docs.map(d => ({ id: d.id, ...d.data() }))];
     teamsLoaded = true;
-    recalcTeamCounts();
     renderChannelChips();
     refreshUserMenuHeader();
     const tmList = document.getElementById('tm-list');
@@ -2681,32 +2648,6 @@ function attachTeamsListener() {
 }
 
 const getTeamLabel = id => (teams.find(t => t.id === id) || {}).label || id || '—';
-
-// 班人数を users から動的算出（Firestore実装では users コレクションを team で集計するクエリに置換）
-function recalcTeamCounts() {
-  const drivers = users.filter(u => u.role === 'driver');
-  teams.forEach(t => {
-    t.count = t.id === 'all' ? drivers.length : drivers.filter(u => u.team === t.id).length;
-  });
-}
-
-// ユーザー一覧（既読率計算に使用）／ team は teams[].id（team_a〜team_i）を参照
-const users = [
-  { id:'u01', name:'南野',   team:'team_d', driverNo:'D-12', role:'driver' },
-  { id:'u02', name:'佐藤',   team:'team_e', driverNo:'E-08', role:'driver' },
-  { id:'u03', name:'鈴木',   team:'team_c', driverNo:'C-05', role:'driver' },
-  { id:'u04', name:'高橋',   team:'team_h', driverNo:'H-11', role:'driver' },
-  { id:'u05', name:'伊藤',   team:'team_a', driverNo:'A-03', role:'driver' },
-  { id:'u06', name:'渡辺',   team:'team_g', driverNo:'G-07', role:'driver' },
-  { id:'u07', name:'山本',   team:'team_e', driverNo:'E-21', role:'driver' },
-  { id:'u08', name:'中村',   team:'team_b', driverNo:'B-14', role:'driver' },
-  { id:'u09', name:'小林',   team:'team_f', driverNo:'F-04', role:'driver' },
-  { id:'u10', name:'土井',   team:'team_g', driverNo:'G-02', role:'driver' },
-  { id:'u11', name:'熊谷',   team:'team_h', driverNo:'H-01', role:'driver' },
-  { id:'u12', name:'安田',   team:'team_i', driverNo:'I-01', role:'driver' },
-  { id:'mgr', name:'田中',   team:null,     driverNo:'—',    role:'manager' },
-];
-recalcTeamCounts();
 
 // カテゴリ（タグ）定義
 const annCategories = [
@@ -2762,6 +2703,7 @@ let kytAllDrivers = [];           // 管理者向け: 全ドライバーキャ�
 let kytCompletionsCache = {};     // 管理者向け one-shotキャッシュ: { [code]: { [scenarioId]: {score,total} } }
 let kytMyCompletions = {};        // ドライバー向け one-shotキャッシュ: { [scenarioId]: {score,total} }
 let kytExpandedCode = null;       // 管理者ダッシュボードのアコーディオン展開中コード(同時に1件のみ)
+let kytMemberListOpen = false;    // 「メンバー別 完了状況」の開閉(初期は閉。行展開の再描画でも保つため変数で持つ)
 
 /* ===== チャットメッセージ（Firestore接続） =====
    Firestore スキーマ: channels/{channelId}/messages/{messageId}
@@ -2867,13 +2809,14 @@ const diffColor = { '低':'var(--safe)', '中':'var(--primary)', '高':'var(--da
 
 const getCat   = id => annCategories.find(c => c.id === id) || annCategories[4];
 const getTeam  = id => teams.find(t => t.id === id) || teams[0];
-const getUser  = id => users.find(u => u.id === id);
 
 // 対象グループに属するドライバーを取得（現在の呼び出し元はチャットのgetChannelMembers()のみ）
+// 母数は周知の annAllDrivers を流用する(v0.4.6でモックusers配列から置換)。管理者ログイン直後と
+// お知らせのスナップショットごとに取り直されており、3系統ある全ドライバーキャッシュの中で最も新しいため。
+// users.list は admin 限定だが、チャットのメンバー表示は管理者専用なので問題ない
 function getTargetDrivers(targetId) {
-  const drivers = users.filter(u => u.role === 'driver');
-  if (targetId === 'all') return drivers;
-  return drivers.filter(u => u.team === targetId);
+  if (targetId === 'all') return annAllDrivers;
+  return annAllDrivers.filter(u => u.team === targetId);
 }
 
 // announcements配列からidで検索する（data属性経由で数値化されても拾えるよう文字列化して比較する）
@@ -4023,6 +3966,7 @@ async function saveNotifPrefs() {
 
 // 更新履歴。git履歴・HANDOFF.md・TECH_DEBT.mdから裏の取れる範囲で記録する(過去分を遡って捏造しない)
 const CHANGELOG = [
+  { version: '0.4.6', items: ['チャットのメンバー数・メンバー一覧を実際の乗務員に合わせて表示(管理者表示)', 'チャットの「最終投稿」に日付を表示(管理者表示)', 'KYTのメンバー別完了状況を折りたたみ表示に(管理者表示)', 'チャットの固定表示「オンライン 5名」とゲームのサンプル人員表示を削除'] },
   { version: '0.4.5', items: ['周知の絞り込みボタンが画面外に出ていたのを修正(管理者表示)', '使われなくなった処理を整理'] },
   { version: '0.4.4', items: ['周知の初期表示コンテンツ(サンプル掲示6件)を削除', '報告のステータスで絞り込むボタンが画面外に出ていたのを修正'] },
   { version: '0.4.3', items: ['チャットに日付の区切りを表示(今日・昨日・日付)'] },
@@ -5641,6 +5585,14 @@ function fmtMsgTime(ts) {
   return d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0');
 }
 
+// メッセージのcreatedAtを「月/日 時:分」(例: 10/14 15:32)に変換する(管理者統計の「最終投稿」用)
+// 基準は fmtMsgTime と同じ端末ローカル。pending write の間は空文字を返す
+function fmtMsgDateTime(ts) {
+  if (!ts || typeof ts.toDate !== 'function') return '';
+  const d = ts.toDate();
+  return `${d.getMonth() + 1}/${d.getDate()} ${fmtMsgTime(ts)}`;
+}
+
 // Date を端末ローカルのカレンダー日 "YYYY-MM-DD" に変換する（日付セパレータの比較キー）
 // jstDateStr() とは別物: あちらは計測用に Asia/Tokyo 固定、こちらは時刻表示(fmtMsgTime)と
 // 基準を揃えるため端末ローカル。混ぜると「12:00 のメッセージなのに昨日」といったズレが出る
@@ -5809,6 +5761,17 @@ function getChannelMembers(channelId) {
   return getTargetDrivers(teamId);
 }
 
+// annAllDrivers が未取得のまま描画されたら1回だけ取得し、取得後に統計・メンバー数を描き直す
+// (取得済みのPromiseを保持して、ドライバー0名でも再取得のループにならないようにする)
+let chatDriversFetch = null;
+function ensureChatDriversLoaded() {
+  if (st.role !== 'manager' || annAllDrivers.length > 0 || chatDriversFetch) return;
+  chatDriversFetch = fetchAnnAllDrivers().then(() => {
+    updateChatMgrStats();
+    updateChannelMembersCount();
+  });
+}
+
 // チャンネルチップを teams マスターから動的生成
 // 全チャンネル（固定2つ＋9班）をボタンとして並べ、.wrap で折り返し表示する
 // （横スクロールにせず、どの班も1タップで直接切替できるようにする）
@@ -5841,12 +5804,14 @@ function updateChatMgrStats() {
   if (!host) return;
   if (st.role !== 'manager') { host.classList.add('hidden'); return; }
 
+  ensureChatDriversLoaded();
   const activeMsgs = chatMessages.filter(m => !m.deleted);
   const members = getChannelMembers(currentChannel);
-  const activeUserNames = new Set(activeMsgs.map(m => m.senderName));
-  const activeMembers = members.filter(u => activeUserNames.has(u.name)).length;
+  // 氏名ではなく乗務員コードで照合する(同姓の乗務員を取り違えないため)
+  const activeCodes = new Set(activeMsgs.map(m => m.senderUid));
+  const activeMembers = members.filter(u => activeCodes.has(u.code)).length;
   const lastMsg = activeMsgs[activeMsgs.length - 1];
-  const lastTime = lastMsg ? (fmtMsgTime(lastMsg.createdAt) || '送信中...') : '—';
+  const lastTime = lastMsg ? (fmtMsgDateTime(lastMsg.createdAt) || '送信中...') : '—';
 
   host.classList.remove('hidden');
   host.innerHTML = `
@@ -5870,29 +5835,31 @@ function updateChannelMembersCount() {
   const countEl = document.getElementById('ch-members-count');
   if (!btn || !countEl) return;
   if (st.role !== 'manager') { btn.classList.add('hidden'); return; }
+  ensureChatDriversLoaded();
   const members = getChannelMembers(currentChannel);
   btn.classList.remove('hidden');
   countEl.textContent = `${members.length}人`;
 }
 
-function showChannelMembers() {
+async function showChannelMembers() {
+  if (annAllDrivers.length === 0) await fetchAnnAllDrivers();
   const members = getChannelMembers(currentChannel);
   const channelName = document.getElementById('ch-title').textContent;
   document.getElementById('ch-members-title').textContent = `# ${channelName} のメンバー（${members.length}人）`;
 
-  // チャンネル内のメッセージ送信者名一覧（アクティブ判定）
+  // チャンネル内のメッセージ送信者の乗務員コード一覧（アクティブ判定。氏名だと同姓を取り違える）
   const msgs = chatMessages.filter(m => !m.deleted);
-  const activeNames = new Set(msgs.map(m => m.senderName));
+  const activeCodes = new Set(msgs.map(m => m.senderUid));
 
   const list = document.getElementById('ch-members-list');
   list.innerHTML = members.map(u => {
-    const isActive = activeNames.has(u.name);
+    const isActive = activeCodes.has(u.code);
     return `
       <div style="display:flex;align-items:center;gap:12px;padding:11px 4px;border-bottom:1px solid var(--border)">
-        <div class="msg-av" style="background:#5B8FE0;width:36px;height:36px">${u.name[0]}</div>
+        <div class="msg-av" style="background:#5B8FE0;width:36px;height:36px">${escHtml((u.name || '?')[0])}</div>
         <div style="flex:1;min-width:0">
           <div style="font-weight:700;font-size:14px;color:var(--navy)">${escHtml(u.name)}</div>
-          <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${escHtml(getTeamLabel(u.team))} · ${escHtml(u.driverNo)}</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${escHtml(getTeamLabel(u.team))} · ${escHtml(u.code)}</div>
         </div>
         ${isActive
           ? '<span style="font-size:10px;background:rgba(31,157,85,.12);color:var(--safe);padding:3px 8px;border-radius:999px;font-weight:700">● 発言あり</span>'
@@ -5929,7 +5896,6 @@ async function modDeleteMsg(id) {
 function renderChatTab() {
   const isManager = st.role === 'manager';
   document.getElementById('chat-admin-banner').classList.toggle('hidden', !isManager);
-  document.getElementById('ch-online-badge').classList.toggle('hidden', isManager);
   if (isManager) {
     updateChatMgrStats();
     updateChannelMembersCount();
@@ -6780,11 +6746,13 @@ function renderKytManagerDashboard() {
       </div>
     </div>
     <div class="user-list-wrap" style="margin-bottom:14px">
-      <div class="user-list-header">
-        <span>👥 メンバー別 完了状況</span>
-        <button class="btn-csv" onclick="exportKytCsv()" style="padding:4px 10px;font-size:11px">📄 CSV</button>
+      <div class="user-list-header" role="button" tabindex="0" aria-expanded="${kytMemberListOpen}"
+        onclick="toggleKytMemberList()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleKytMemberList()}"
+        style="cursor:pointer;${kytMemberListOpen ? '' : 'border-bottom:none'}">
+        <span>${kytMemberListOpen ? '▾' : '▸'} 👥 メンバー別 完了状況（${userStats.length}名）</span>
+        <button class="btn-csv" onclick="event.stopPropagation();exportKytCsv()" onkeydown="event.stopPropagation()" style="padding:4px 10px;font-size:11px">📄 CSV</button>
       </div>
-      ${userStats.map(u => `
+      ${!kytMemberListOpen ? '' : userStats.map(u => `
         <div class="kyt-driver-row" onclick="toggleKytDriverRow('${u.code}')"
           style="padding:10px 12px;border-bottom:1px solid var(--border);cursor:pointer">
           <div style="display:flex;align-items:center;gap:8px">
@@ -6818,6 +6786,12 @@ function renderKytManagerDashboard() {
 // メンバー別一覧のアコーディオン展開切替(同時に1件のみ展開、キャッシュ済みデータのみで再描画)
 function toggleKytDriverRow(code) {
   kytExpandedCode = kytExpandedCode === code ? null : code;
+  renderKytManagerDashboard();
+}
+
+// 「メンバー別 完了状況」全体の開閉切替(キャッシュ済みデータのみで再描画)
+function toggleKytMemberList() {
+  kytMemberListOpen = !kytMemberListOpen;
   renderKytManagerDashboard();
 }
 
@@ -8027,44 +8001,6 @@ function renderGameTab() {
 }
 
 function renderGameManagerView() {
-  const drivers = users.filter(u => u.role === 'driver');
-  const registered   = drivers.filter(u => gameNotifRegistered.has(u.id));
-  const unregistered = drivers.filter(u => !gameNotifRegistered.has(u.id));
-
-  // 件数バッジ
-  const regCountEl   = document.getElementById('game-reg-count');
-  const unregCountEl = document.getElementById('game-unreg-count');
-  if (regCountEl)   regCountEl.textContent   = registered.length;
-  if (unregCountEl) unregCountEl.textContent = unregistered.length;
-
-  // 登録済みリスト
-  const regList = document.getElementById('game-reg-list');
-  if (regList) regList.innerHTML = registered.length === 0
-    ? '<div style="padding:12px;font-size:13px;color:var(--text-muted)">（なし）</div>'
-    : registered.map(u => `
-        <div class="user-row">
-          <div class="msg-av" style="background:linear-gradient(135deg,#0D3D9E,#3F8CEF)">${u.name[0]}</div>
-          <div class="user-info">
-            <div class="user-name">${escHtml(u.name)}</div>
-            <div class="user-meta">${escHtml(getTeamLabel(u.team))}</div>
-          </div>
-          <span class="user-status read">🔔 登録済</span>
-        </div>`).join('');
-
-  // 未登録リスト
-  const unregList = document.getElementById('game-unreg-list');
-  if (unregList) unregList.innerHTML = unregistered.length === 0
-    ? '<div style="padding:12px;font-size:13px;color:var(--text-muted)">（全員登録済み）</div>'
-    : unregistered.map(u => `
-        <div class="user-row">
-          <div class="msg-av" style="background:#9AA7BA">${u.name[0]}</div>
-          <div class="user-info">
-            <div class="user-name">${escHtml(u.name)}</div>
-            <div class="user-meta">${escHtml(getTeamLabel(u.team))}</div>
-          </div>
-          <span class="user-status unread">○ 未登録</span>
-        </div>`).join('');
-
   // 公開スケジュール
   const schedList = document.getElementById('game-schedule-list');
   if (schedList) schedList.innerHTML = gameContents.map(g => {
@@ -8079,13 +8015,6 @@ function renderGameManagerView() {
         <span style="font-size:11px;font-weight:700;padding:4px 9px;border-radius:999px;background:${s.bg};color:${s.color};white-space:nowrap">${s.label}</span>
       </div>`;
   }).join('');
-}
-
-function gameNotifyAll() {
-  const drivers = users.filter(u => u.role === 'driver');
-  drivers.forEach(u => gameNotifRegistered.add(u.id));
-  renderGameManagerView();
-  showToast('📣 全ドライバーに告知を送信しました（モック）');
 }
 
 /* ===== setRole・switchTab への統合フック ===== */
@@ -8178,6 +8107,7 @@ function showLoginScreen() {
   kytCompletionsCache = {};
   kytMyCompletions = {};
   kytExpandedCode = null;
+  kytMemberListOpen = false;
   // teams関連のリスナーも同様に必ずdetach(teams配列自体はフォールバック値のまま保持してよい)
   if (teamsUnsub) { teamsUnsub(); teamsUnsub = null; }
   teamsLoaded = false;
@@ -8187,6 +8117,7 @@ function showLoginScreen() {
   announcements = [];
   annCurrentReads = {};
   annAllDrivers = [];
+  chatDriversFetch = null;
   annReachCache = {};
   myAnnAcks = {};
   st.annDetailId = null;
