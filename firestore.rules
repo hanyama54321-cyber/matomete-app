@@ -25,11 +25,20 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/users/$(myCode())).data;
     }
 
-    // チャンネル閲覧可否: general/safety等(teamId:'all')は全員、
-    // 班チャンネルは自分の所属班のみ、adminは常に全チャンネル閲覧可
+    // 管理者班(v0.4.8)。管理者権限(users.role == 'admin')を持つアカウントだけが読み書きできる部屋。
+    // IDの team_i は恒久キーで、呼称(teams.label / channels.name)を変えても権限はこのIDで判定する。
+    // 所属班(users.team)は判定に使わない
+    function isAdminRoom(channelId) {
+      return channelId == 'team_i';
+    }
+
+    // チャンネル投稿可否: general/safety等(teamId:'all')は全員、
+    // 班チャンネルは自分の所属班のみ、adminは常に全チャンネル投稿可。
+    // 管理者班は所属班が team_i でも admin 以外は不可(乗務員は自己変更でも team_i に入れないが、念のため)
     function channelVisible(channelId) {
       let ch = get(/databases/$(database)/documents/channels/$(channelId)).data;
-      return ch.teamId == 'all' || ch.teamId == myUserDoc().team || isAdmin();
+      return isAdmin()
+        || (!isAdminRoom(channelId) && (ch.teamId == 'all' || ch.teamId == myUserDoc().team));
     }
 
     // FCM通知のイベント種別ごとON/OFF(users/{code}.notifyPrefs)の検証。
@@ -50,7 +59,8 @@ service cloud.firestore {
       // 一覧取得はadminのみ(ユーザー管理画面用)
       allow list: if isAdmin();
       // 本人は passwordChanged フィールドのみ、または team フィールドのみ(所属班の自己変更)を更新可(role等は変更不可)
-      // team自己変更はteam_a〜team_iのホワイトリストのみ許可(channelVisible()がteamを信頼するため、任意値の書込みは班チャンネルへの不正アクセスに直結する)
+      // team自己変更はteam_a〜team_hのホワイトリストのみ許可(channelVisible()がteamを信頼するため、任意値の書込みは班チャンネルへの不正アクセスに直結する)。
+      // team_i(管理者班)はv0.4.8で外した。乗務員が自分で管理者班に入れないようにするため
       // adminは全フィールド更新可(役割変更用)。ただし自分自身のroleは変更不可(自己降格防止)
       allow update: if (isAdmin()
             && !(myCode() == code && request.resource.data.role != resource.data.role))
@@ -61,7 +71,7 @@ service cloud.firestore {
             && request.resource.data.diff(resource.data)
                .affectedKeys().hasOnly(['team'])
             && request.resource.data.team in
-               ['team_a','team_b','team_c','team_d','team_e','team_f','team_g','team_h','team_i'])
+               ['team_a','team_b','team_c','team_d','team_e','team_f','team_g','team_h'])
         // lastActiveDateは利用状況計測(recordSession())用。本人のみ単独更新可
         || (myCode() == code
             && request.resource.data.diff(resource.data)
@@ -128,19 +138,31 @@ service cloud.firestore {
     match /channels/{channelId} {
       // 閲覧(一覧・個別取得とも)はログイン済み全員に開放(v0.2: 他班チャンネルも閲覧可能に)。
       // 書き込みは従来どおり所属班+adminのみ(下記 messages/allow create, update 参照)
+      // ※管理者班(team_i)のドキュメントも乗務員に get/list させる。チャンネル一覧は channels
+      //   コレクション全体を1本のリスナーで購読しており、ルールはフィルタとして働かないため、
+      //   1件でも読めないドキュメントがあると購読そのものが失敗して全チャンネルの新着表示が壊れる。
+      //   代わりに管理者班の lastMessage には createdAt しか書かせない(下記 update)
       allow get, list: if isSignedIn();
       // チャンネル自体の作成・削除、teamId/name等の変更はadminのみ。
       // ただし lastMessage フィールドのみは、投稿権限(所属班+admin)があるユーザーなら
       // 誰でも更新可(メッセージ送信時に併記更新するため)
+      // 管理者班は admin のみ更新可、かつ lastMessage を持つなら createdAt 以外のキーを禁止する
+      // (本文・送信者名が乗務員の読めるチャンネル一覧へ漏れないようにするため。v0.4.8)
       allow create, delete: if isAdmin();
-      allow update: if isAdmin()
+      allow update: if (isAdmin()
+            && (!isAdminRoom(channelId)
+                || !('lastMessage' in request.resource.data)
+                || request.resource.data.lastMessage == null
+                || request.resource.data.lastMessage.keys().hasOnly(['createdAt'])))
         || (isSignedIn()
+            && !isAdminRoom(channelId)
             && (resource.data.teamId == 'all' || resource.data.teamId == myUserDoc().team)
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastMessage']));
 
       match /messages/{messageId} {
-        // 閲覧はログイン済み全員に開放(v0.2)。投稿はchannelVisible()(所属班+admin)のまま維持
-        allow read: if isSignedIn();
+        // 閲覧はログイン済み全員に開放(v0.2)。ただし管理者班(team_i)は admin のみ(v0.4.8)。
+        // 投稿はchannelVisible()(所属班+admin、管理者班はadminのみ)
+        allow read: if isSignedIn() && (!isAdminRoom(channelId) || isAdmin());
 
         // 投稿: チャンネルが見えるユーザーのみ。senderUid/senderName/senderRoleは
         // リクエスト者本人のusersドキュメントと一致する値のみ許可(なりすまし防止)

@@ -16,7 +16,9 @@ const TEAMS_MASTER = [
   { id: 'team_f', code: 'F', leaderName: '小林',   label: '小林班' },
   { id: 'team_g', code: 'G', leaderName: '土井',   label: '土井班' },
   { id: 'team_h', code: 'H', leaderName: '熊谷',   label: '熊谷班' },
-  { id: 'team_i', code: 'I', leaderName: null,     label: '安全指導班' }, // 機能班(個人班長に紐付かない)
+  // 管理者班(v0.4.8で「安全指導班」から変更)。個人班長に紐付かず、表示名も「I班（…）」を付けない。
+  // 権限は呼称ではなく team_i というIDで判定する(firestore.rules の isAdminRoom())
+  { id: 'team_i', code: 'I', leaderName: null,     label: '管理者班' },
 ];
 
 // db: firebase.firestore() のインスタンス。log: ログ出力用コールバック(引数1つ、文字列)
@@ -25,7 +27,7 @@ async function seedTeams(db, log) {
   let order = 0;
   for (const t of TEAMS_MASTER) {
     order += 1;
-    const displayName = `${t.code}班（${t.label}）`;
+    const displayName = t.id === 'team_i' ? t.label : `${t.code}班（${t.label}）`;
     await db.collection('teams').doc(t.id).set({
       code: t.code,
       leaderName: t.leaderName,

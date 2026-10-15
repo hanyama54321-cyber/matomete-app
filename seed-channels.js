@@ -18,7 +18,7 @@ const CHANNELS_MASTER = [
   { id: 'team_f',  teamId: 'team_f', name: 'F班（小林班）' },
   { id: 'team_g',  teamId: 'team_g', name: 'G班（土井班）' },
   { id: 'team_h',  teamId: 'team_h', name: 'H班（熊谷班）' },
-  { id: 'team_i',  teamId: 'team_i', name: 'I班（安全指導班）' },
+  { id: 'team_i',  teamId: 'team_i', name: '管理者班' }, // 管理者専用(v0.4.8)
 ];
 
 async function seedChannels(db, log) {
