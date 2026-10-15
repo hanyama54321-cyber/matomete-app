@@ -87,7 +87,7 @@ LINE連携(LINEログイン・LIFF等)はセキュリティ上の懸念により
 
 ## 8. FCMプッシュ通知(v0.3で実装。段階的展開はStage2まで完了)
 
-このアプリで初めて`functions/`(Cloud Functions v2、Node 20、`asia-northeast1`)を新設した。5トリガー(`onAnnouncementNotify`/`onReportCreated`/`onReportReplyNotify`/`onManualCreated`/`cleanupStaleTokens`)+3callable(`sendUnreadReminder`/`subscribeToReport`/`estimateNotifyAudience`)。旧来の「アプリを開いている間だけ」の`Notification` API即時表示機構(`localStorage['fbNotifOptIn']`、`notifyNewReport`/`notifyNewAnnouncement`等)は撤去し、FCMに完全統合した。
+このアプリで初めて`functions/`(Cloud Functions v2、`asia-northeast1`)を新設した。ランタイムは当初Node 20で、v0.4.7でNode 22へ移行した(項目20)。5トリガー(`onAnnouncementNotify`/`onReportCreated`/`onReportReplyNotify`/`onManualCreated`/`cleanupStaleTokens`)+3callable(`sendUnreadReminder`/`subscribeToReport`/`estimateNotifyAudience`)。旧来の「アプリを開いている間だけ」の`Notification` API即時表示機構(`localStorage['fbNotifOptIn']`、`notifyNewReport`/`notifyNewAnnouncement`等)は撤去し、FCMに完全統合した。
 
 **段階的展開(オプトイン・ゲート)の経緯**:
 - Stage0(2026-07-25、mainマージ直後): 通知オプトインUIは`fbUser.role==='admin'`、または`config/notifications.openToAllUsers===true`のときのみ表示(`canShowNotifyOptIn()`)。`config/notifications`は`{openToAllUsers:false}`で本番Firestoreに作成
@@ -467,3 +467,41 @@ v0.4.6では指示により4つ目を作らず、最も新しい`annAllDrivers`�
 **統合する場合**: 1つの変数と取得関数にまとめ、乗務員マスタの追加・削除・役割変更の直後に取り直す。
 ログアウト時のクリア(`showLoginScreen()`)も1箇所になる。3タブの描画と、周知のお知らせリスナー内の
 取り直しをすべて新しい変数へ向け替える必要があり、描画パスが3つにまたがるため単独のリリースで行うこと。
+
+## 20. Cloud Functions のランタイムとSDKの期限(v0.4.7でNode 22へ移行済み・次回期限あり)
+
+v0.4.7で`firebase.json`の`runtime`を`nodejs20`→`nodejs22`、`functions/package.json`の
+`engines.node`を`"20"`→`"22"`に変更し、8関数を再デプロイした。関数のコードと依存
+(`firebase-functions` 5.1.1 / `firebase-admin` 12.7.0、いずれも`engines.node >=14`)は変えていない。
+`package-lock.json`も無変更。
+
+### 次回の期限(Google Cloud のランタイムサポート表)
+
+| ランタイム | 非推奨 | 廃止 |
+|---|---|---|
+| Node.js 20 | 2026-04-30 | 2026-10-30(v0.4.7で移行済み) |
+| **Node.js 22(現行)** | **2027-04-30** | **2027-10-31** |
+
+**次の移行は2027年春(非推奨になる4/30まで)に着手すること。** 廃止日を過ぎると既存関数の
+更新もできなくなり、関数が無効化される可能性がある。このアプリのプッシュ通知はすべて
+Cloud Functionsで動いているため、止まると全通知が止まる。廃止日を過ぎると旧ランタイムへの
+切り戻しもできないので、直す時間を残せるよう早めに出す。
+
+手順はv0.4.7と同じ(2箇所の書き換え → 対象バージョンのNodeで`npm ci`・読み込み・ルールテスト・
+エミュレータ起動 → 本番の関数一覧が8本と一致することを確認 → 関数名を個別指定してデプロイ)。
+ローカルのNodeは対象バージョンと異なることがある(v0.4.7時点でローカルはNode 24)。その場合は
+nodejs.org公式のzipをスクラッチパッドに展開してPATHの先頭に置く(Git Bashでは`/c/...`形式で書かないと
+効かない)。Functionsエミュレータは起動ログの「Using node@NN from host」で実際のバージョンが分かる。
+
+### 未対応: SDKのメジャー更新
+
+`firebase-functions` v6以降・`firebase-admin` v13以降への更新は、破壊的変更を含むため
+v0.4.7では行わなかった(ランタイムの切り替えだけにして、問題が出たときの原因を一つに絞るため)。
+次のランタイム移行とは**別のリリース**で行うこと。`npm ci`では推移的依存の`uuid@9` / `uuid@10`に
+非推奨の警告が出ているが、これもSDK更新で解消される性質のもので、v0.4.7では触っていない。
+
+### `cleanupStaleTokens`はエミュレータで動かない
+
+pubsubエミュレータが`firebase.json`に設定されていないため、エミュレータ起動時は
+「function ignored because the pubsub emulator does not exist」で読み込みのみになる。
+動作確認は本番の定期実行(毎週日曜3:00 JST)のログで行う。

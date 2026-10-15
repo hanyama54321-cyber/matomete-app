@@ -7,9 +7,11 @@
 - **リポジトリ**: `matomete-app`(安全配送まとめてアプリ)。単一ファイルSPA([index.html](index.html)、約8850行)+ Firebase(Firestore/Auth/Storage/**Cloud Functions/FCM**)。
 - **ブランチ運用**: `main`=本番公開中(GitHub Pages、Firebase接続版)、`develop`=開発中。リリース時は`develop`→`main`マージ(手順は[README.md](README.md)参照)。
 - **Firebaseプロジェクト**: `anzen-matomete-app`(Blazeプラン、asia-northeast1)。
-- **アプリバージョン**: **v0.4.6(mainへ本公開済み)**。
-  切り戻し先は`v0.4.5-pre-mock-members`(`34f32c5`)。
-- **v0.4 〜 v0.4.5 は実機確認完了**(問題なし)。**v0.4.6は実機確認待ちです**(下記)。
+- **アプリバージョン**: **v0.4.7(mainへ本公開済み・Cloud FunctionsはNode 22でデプロイ済み)**。
+  切り戻し先は`v0.4.6-pre-node22`(`7816c19`)。v0.4.7は画面の変更なし(版表記とCHANGELOGのみ)。
+- **v0.4 〜 v0.4.5 は実機確認完了**(問題なし)。**v0.4.6は実機確認待ち、v0.4.7は通知受信の確認待ちです**(下記)。
+- **Cloud Functionsのランタイム**: Node.js 22。**廃止日は2027-10-31(非推奨2027-04-30)。
+  次の移行は2027年春に着手すること**([TECH_DEBT.md](TECH_DEBT.md)項目20)。
 
 ### タグの配置
 
@@ -20,14 +22,33 @@
 | `v0.4.2` / `v0.4.2-pre-chat-datesep` | `efcb85d` | v0.4.3の切り戻し先 |
 | `v0.4.3` / `v0.4.3-pre-mock-removal` | `28de7eb` | v0.4.4の切り戻し先 |
 | `v0.4.4` / `v0.4.4-pre-filter-wrap` | `37a65ac` | v0.4.5の切り戻し先 |
-| `v0.4.5` / `v0.4.5-pre-mock-members` | `34f32c5` | **v0.4.6の切り戻し先** |
-| `v0.4.6` | `git rev-parse v0.4.6^{}`で確認 | 現在の本番 |
+| `v0.4.5` / `v0.4.5-pre-mock-members` | `34f32c5` | v0.4.6の切り戻し先 |
+| `v0.4.6` / `v0.4.6-pre-node22` | `7816c19` | **v0.4.7の切り戻し先** |
+| `v0.4.7` | `git rev-parse v0.4.7^{}`で確認 | 現在の本番 |
 
 `feature/v0.4.2-onclick-sweep`は`develop`へマージしたうえで**削除済み**です(ローカル・リモートとも)。
 v0.4.1がmain未マージの時期にv0.4.1のマージへ未検証コードが混入するのを避けるため、
 一時的に切っていたものです。内容は`v0.4.2`タグと`v0.4.1-pre-onclick-sweep`から復元できます。
 
 ## 次のセッションで最初に確認すること
+
+### v0.4.7(Cloud Functions の Node.js 22 移行)
+
+**本番の8関数はNode 22でデプロイ済みです。** 実際の通知受信の確認は南野さんの担当です
+(Claude Code側では本番で通知を飛ばさない取り決め)。結果を聞いてください。
+
+- 確認していただくもの: 必読お知らせ・報告への回答・未読リマインダー・手順書追加・
+  管理者向け新規報告のプッシュ通知が、従来どおり届くこと
+- **`cleanupStaleTokens`の初回定期実行(日曜3:00 JST)のログ確認が残っています。** 実行後に
+  `npx firebase-tools functions:log --only cleanupStaleTokens --project anzen-matomete-app`でエラーが
+  無いことを確認すること
+- **切り戻し**: 2026-10-30より前なら、`firebase.json`と`functions/package.json`を`nodejs20` / `"20"`に
+  戻して同じ個別指定で再デプロイすれば戻せる。**10/30以降はNode 20へは戻せない**(Node 22のまま直す)
+
+**次はv0.4.8(チャット「安全指導班」→管理者専用の「管理者班」)です。** 指示書は受領済みですが、
+**v0.4.7の本番確認を南野さんに報告し、了承を得てから着手する**取り決めです。
+
+### v0.4.6
 
 **v0.4.6の実機確認がまだです。** マージ・タグ付け・Pages反映確認まで完了しており、
 iOS実機での確認だけ南野さんの担当として残っています。結果を聞いてください。
@@ -152,7 +173,30 @@ CSSの`.reach-mini-public`(2ルール)が**どこからも使われていませ�
    - 残って正しいのは「パスワードのセルフリセット」「予約時刻での自動配信」「メール通知」の3件
    - Drive: `安全配送まとめてアプリ/管理者向け運用マニュアル_安全配送まとめてアプリ.md`
 
-## 本セッション: v0.4.6 チャット・KYT・ゲームのモック人員の除去と表示改善
+## 本セッション: v0.4.7 Cloud Functions の Node.js 22 移行
+
+Node.js 20のランタイムが2026-10-30に廃止されるための対応。**ランタイムの切り替えだけ**で、
+関数のコード・SDKのバージョン・`package-lock.json`は変えていない。
+
+| 変更 | 内容 |
+|---|---|
+| `firebase.json` | `functions[0].runtime`: `nodejs20` → `nodejs22` |
+| `functions/package.json` | `engines.node`: `"20"` → `"22"` |
+| `index.html` | `APP_VERSION`を0.4.7、CHANGELOGに1行(画面の変更なし) |
+| ドキュメント | HANDOFF・TECH_DEBT(項目8・20)・`docs/メール通知_将来実装メモ.md`のNode 20の記述 |
+
+- **Node 20前提の記述の検索結果**: 実行に関わるものは上の2箇所だけ。`.nvmrc`・`.github/workflows`は
+  存在せず、ルートの`package.json`のscriptsにもNodeのバージョン指定は無い。
+  `docs/archive/sendAnnouncementEmail/`の`engines.node: "24"` / `nodejs24`は削除済みの試作の退避で
+  デプロイ対象ではないため触っていない
+- **デプロイ前の確認(Node 22.23.3)**: `npm ci`はengines警告なし(推移的依存`uuid`の非推奨警告のみ)、
+  `functions/index.js`の読み込みで8関数をexport、ルールテスト189件全pass。エミュレータは
+  「Using node@22 from host」で8関数の定義を読み込み、`announcements`への必読お知らせ書き込みで
+  `onAnnouncementNotify`が発火し`notifiedAt`まで書いた(自己再帰ガードで2回目は即終了)。
+  `cleanupStaleTokens`はpubsubエミュレータが無いため読み込みのみ
+- **デプロイ**: 本番の関数一覧が8本と完全一致することを確認してから、関数名を個別指定して実行
+
+## 前セッション: v0.4.6 チャット・KYT・ゲームのモック人員の除去と表示改善
 
 v0.1モック時代の`users`配列(架空の乗務員12名+管理者1名)がチャット・ゲームの人員表示に
 残っていたのを除き、あわせてチャットとKYTの管理者表示を改善した。作業ごとにコミットを分けている。
@@ -197,7 +241,7 @@ v0.1モック時代の`users`配列(架空の乗務員12名+管理者1名)がチ
   変えるだけで、再読み込みで元に戻る。詳細は項目18
 - `st.currentUid`は4箇所のまま(定義・`setRole()`・`registerGameNotif()`・コメント)
 
-## 前セッション: v0.4.5 周知フィルターの折り返し・showReachPublic() の撤去
+## 過去セッション: v0.4.5 周知フィルターの折り返し・showReachPublic() の撤去
 
 v0.4.4の申し送り2件の処理。いずれも小さい変更で、作業ごとにコミットを分けている。
 
@@ -637,7 +681,7 @@ v0.3.1でヘッダーのベルと周知タブの新着マークを「機能し�
 
 ### Cloud Functions基盤(`functions/`新設)
 
-- Node 20、`firebase-functions` v2 API、リージョン`asia-northeast1`、全関数`maxInstances`設定済み
+- Node 20(v0.4.7でNode 22へ移行)、`firebase-functions` v2 API、リージョン`asia-northeast1`、全関数`maxInstances`設定済み
 - `functions/lib/`: `admin.js`(modular API、`initializeApp`/`getFirestore`/`getMessaging`)・`auth.js`(`codeFromAuth`/`requireAdmin`)・`constants.js`・`hash.js`・`tokens.js`・`send.js`・`idempotency.js`
 - トリガー5つ: `onAnnouncementNotify`(`onDocumentWritten`、create/update両対応。削除イベントガード+自己再帰ガード(notifiedAtのみの差分は無視)必須)・`onReportCreated`・`onReportReplyNotify`(`reports`本体を書かず`private/replyNotify`にのみ書き込むことで自己再帰を回避)・`onManualCreated`・`cleanupStaleTokens`(週次、`collectionGroup('tokens')`の180日超`lastSeenAt`を削除)
 - callable3つ: `sendUnreadReminder`・`subscribeToReport`(匿名報告のFCMトピック購読。トピック名はFunctions側でランダム生成しクライアントに返さない、`private/notify`に保存、購読受付は報告作成後60秒以内・一度きり)・`estimateNotifyAudience`(送信前確認ダイアログの概算人数算出。`sendUnreadReminder`と同じ管理者限定チェックを実施)
@@ -808,8 +852,11 @@ npm run test:rules
 # 2. rules + indexes をデプロイ
 npx firebase-tools deploy --only firestore:rules,firestore:indexes --project anzen-matomete-app
 
-# 3. Cloud Functionsをデプロイ(sendAnnouncementEmail削除済みのため個別指定不要)
-npx firebase-tools deploy --only functions --project anzen-matomete-app
+# 3. Cloud Functionsをデプロイ
+#    v0.4.7以降は南野さんの指示で関数名を個別指定する(既存関数の巻き添え削除を避けるため)。
+#    実行前に functions:list で本番が下の8本と完全一致することを確認し、
+#    「関数を削除しますか」と聞かれたら拒否して報告する
+npx firebase-tools deploy --only functions:onAnnouncementNotify,functions:onReportCreated,functions:onReportReplyNotify,functions:onManualCreated,functions:sendUnreadReminder,functions:subscribeToReport,functions:estimateNotifyAudience,functions:cleanupStaleTokens --project anzen-matomete-app
 
 # Storageルールを変更した場合はこちらも
 npx firebase-tools deploy --only storage --project anzen-matomete-app
@@ -823,7 +870,7 @@ npx firebase-tools deploy --only storage --project anzen-matomete-app
 - `seed.html`は`.gitignore`で除外(実行後は毎回未追跡のまま)。
 - コミット前に`git status`で意図しない差分がないか確認 → `npm run test:rules`全pass確認 → コミット → push、の順を徹底。
 - 実機テストで本番Firestoreにテストデータを書き込んだ場合は、テスト直後に必ず削除して原状復帰する。**ただし`sessions`コレクションは`allow update, delete: if false`(追記のみ)のため、検証で作成したセッションレコード自体は削除できない**(`users.lastActiveDate`は自己更新可能なため元に戻せる)。
-- **mainへのマージは指示がない限り行わない**(既定)。実績としては、**v0.4.1〜v0.4.6はすべて
+- **mainへのマージは指示がない限り行わない**(既定)。実績としては、**v0.4.1〜v0.4.7はすべて
   南野さんの指示書に「タグ作成・マージ・Pages反映確認まで実施」と明記があり、こちら側で実行した**
   (iOS実機確認のみ南野さん)。指示書にその記載が無いリリースでは、実行前に確認すること。
 - **実機確認が終わった後のドキュメント更新(HANDOFFへの完了記録など)は`develop`に積むだけで、
