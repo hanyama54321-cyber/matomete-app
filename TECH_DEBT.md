@@ -505,3 +505,54 @@ v0.4.7では行わなかった(ランタイムの切り替えだけにして、�
 pubsubエミュレータが`firebase.json`に設定されていないため、エミュレータ起動時は
 「function ignored because the pubsub emulator does not exist」で読み込みのみになる。
 動作確認は本番の定期実行(毎週日曜3:00 JST)のログで行う。
+
+## 21. チャットの管理者班(v0.4.8・設計の記録)
+
+v0.4.8でチャンネル`team_i`(旧「安全指導班」)を、**管理者権限(`users.role == 'admin'`)を持つ
+アカウントだけが閲覧・投稿できる「管理者班」**にした。IDの`team_i`は恒久キーのまま。
+
+### 判定の置き場所
+
+| 場所 | 名前 | 役割 |
+|---|---|---|
+| `firestore.rules` | `isAdminRoom(channelId)` | `channelId == 'team_i'`。messagesのread・create、channelsのupdateで使う |
+| `index.html` | `ADMIN_ROOM_ID` | `'team_i'`。チップ・新着・投稿可否・lastMessage・メンバー・プロフィール・班編成管理で使う |
+
+**判定は呼称ではなくIDで行う。** 班編成管理で呼称を変えても権限は変わらない。**所属班(`users.team`)は
+判定に使わない**(管理者AAAAAの`team`が`team_i`のままなのは、そのため問題ない。南野さん判断)。
+
+### 乗務員に中身が漏れる経路と対策
+
+| 経路 | 対策 |
+|---|---|
+| 1. `channels/team_i/messages` | ルールで read・create とも`isAdmin()`のみ。所属班が`team_i`の乗務員でも不可 |
+| 2. `channels/team_i.lastMessage` | 管理者班への投稿時は**`{ createdAt }`だけを書く**。ルールでも admin のみ更新可、かつ`createdAt`以外のキーを拒否 |
+
+**経路2で`channels/team_i`の get/list を乗務員に禁止しなかった理由**: チャンネル一覧は
+`attachChatChannelsListener()`が`channels`コレクション全体を1本のリスナーで購読しており、
+Firestoreのルールはフィルタとして働かないため、1件でも読めないドキュメントがあると
+**購読そのものが失敗して全チャンネルの新着表示が壊れる**。代わりに中身(本文・送信者名)を
+書かせない形で塞いだ。新着判定は`lastMessage.createdAt`しか見ていないので動作は変わらない。
+
+**残る情報**: 乗務員から見えるのは`channels/team_i`の`name`(「管理者班」)・`teamId`・
+`lastMessage.createdAt`(最終投稿の時刻)だけ。最終投稿の時刻が分かることは許容している。
+
+### メンバー表示
+
+管理者班のメンバー一覧・人数・アクティブ数は、乗務員ではなく`role == 'admin'`の一覧
+(`fetchChatAdmins()`、`chatAdmins`)。**メンテ用コード(AAAAA/BBBBB/CCCCC)は表示上のメンバーから
+除外**する(閲覧・投稿は通常の管理者と同じくできる)。除外は乗務員マスタと共用の定数
+`MASTER_EXCLUDED_CODES`のコード完全一致に一本化している。v0.4.8時点で本番の管理者は10名、
+表示は7名になる見込み。
+
+### 所属班の自己変更
+
+ルールのホワイトリストから`team_i`を外し、乗務員は`team_a`〜`team_h`にだけ自己変更できる。
+`null`(班なし)への自己変更も従来どおり不可。プロフィール画面は、現在の所属が選択肢に無い
+(班なし・`team_i`)場合に「○○（変更しない）」を先頭に選択して開く(無いと先頭のA班が選ばれた
+状態で開き、保存しただけで所属班がA班に書き換わっていた)。
+
+### 移行時のデータ(v0.4.8)
+
+乗務員10000(HI-LINE 研修、研修用)の所属班を`team_i` → `null`(班なし)に変更した(南野さん指示)。
+アカウントは今後の実機テストで使うため削除・無効化していない。変更前の値はHANDOFF参照。
