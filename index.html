@@ -5385,7 +5385,7 @@ async function showReach(id) {
         </div>
         ${unreadUsers.map(u => `
           <div class="user-row">
-            <div class="msg-av" style="background:#5B8FE0">${(u.name||'?')[0]}</div>
+            <div class="msg-av" style="background:#5B8FE0">${escHtml((u.name||'?')[0])}</div>
             <div class="user-info">
               <div class="user-name">${escHtml(u.name)}</div>
               <div class="user-meta">${escHtml(getTeamLabel(u.team))} · ${escHtml(u.driverNo)}</div>
@@ -5403,7 +5403,7 @@ async function showReach(id) {
         </div>
         ${readUsers.map(u => `
           <div class="user-row">
-            <div class="msg-av" style="background:linear-gradient(135deg,#0D3D9E,#3F8CEF)">${(u.name||'?')[0]}</div>
+            <div class="msg-av" style="background:linear-gradient(135deg,#0D3D9E,#3F8CEF)">${escHtml((u.name||'?')[0])}</div>
             <div class="user-info">
               <div class="user-name">${escHtml(u.name)}</div>
               <div class="user-meta">${escHtml(getTeamLabel(u.team))} · ${escHtml(u.driverNo)}</div>
@@ -5666,7 +5666,7 @@ function renderChat() {
     }
     return `${sep}
     <div class="msg-row${isMe?' me':''}" data-mid="${m.id}">
-      ${!isMe ? `<div class="msg-av" style="background:${isAdminMsg?'linear-gradient(135deg,#0D3D9E,#3F8CEF)':'#5B8FE0'}">${(m.senderName||'?')[0]}</div>` : ''}
+      ${!isMe ? `<div class="msg-av" style="background:${isAdminMsg?'linear-gradient(135deg,#0D3D9E,#3F8CEF)':'#5B8FE0'}">${escHtml((m.senderName||'?')[0])}</div>` : ''}
       <div class="msg-wrap">
         ${!isMe ? `<div class="msg-name">${escHtml(m.senderName)}${isAdminMsg?'<span style="font-size:9px;background:rgba(13,61,158,.15);color:var(--navy);padding:1px 5px;border-radius:4px;margin-left:5px;letter-spacing:.04em;font-weight:700">管理者</span>':''}</div>` : ''}
         <div class="msg-bubble${isMe?' me':''}${m.deleted?' deleted':''}">${m.deleted ? '<em style="opacity:.6">このメッセージは管理者により削除されました</em>' : escHtml(m.text)}</div>
@@ -6050,7 +6050,7 @@ function attachManualReadsListener(manualId) {
                 <div class="msg-av" style="background:#5B8FE0">${escHtml((u.name||'?')[0])}</div>
                 <div class="user-info">
                   <div class="user-name">${escHtml(u.name)}</div>
-                  <div class="user-meta">${getTeamLabel(u.team)} · ${escHtml(u.code)}</div>
+                  <div class="user-meta">${escHtml(getTeamLabel(u.team))} · ${escHtml(u.code)}</div>
                 </div>
                 <span class="user-status unread">未読</span>
               </div>
@@ -6065,7 +6065,7 @@ function attachManualReadsListener(manualId) {
                 <div class="msg-av" style="background:linear-gradient(135deg,#0D3D9E,#3F8CEF)">${escHtml((u.name||'?')[0])}</div>
                 <div class="user-info">
                   <div class="user-name">${escHtml(u.name)}</div>
-                  <div class="user-meta">${getTeamLabel(u.team)} · ${escHtml(u.code)}</div>
+                  <div class="user-meta">${escHtml(getTeamLabel(u.team))} · ${escHtml(u.code)}</div>
                 </div>
                 <span class="user-status read">既読</span>
               </div>
@@ -6125,7 +6125,7 @@ function renderMan(q='') {
       <div style="font-size:26px">${m.icon}</div>
       <div style="font-weight:700;font-size:15px;color:var(--navy);line-height:1.5">${escHtml(m.title)}</div>
       <div style="display:flex;gap:5px;flex-wrap:wrap">
-        ${mkTag(m.category,'var(--primary)')}
+        ${mkTag(escHtml(m.category),'var(--primary)')}
       </div>
       ${isManager
         ? `<div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-sub);margin-top:4px">
@@ -6166,7 +6166,7 @@ function showMan(id) {
     <div class="card">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">
         ${m.mustRead ? '<span class="must-read-badge">✋ 必読</span>' : ''}
-        ${mkTag(m.category,'var(--primary)')}
+        ${mkTag(escHtml(m.category),'var(--primary)')}
         ${!m.fileUrl ? mkTag('サンプル(実ファイルなし)','var(--text-muted)') : ''}
       </div>
       <div style="font-size:32px;margin-bottom:10px">${m.icon}</div>
@@ -6725,7 +6725,7 @@ function renderKYTList() {
         <div style="font-size:32px;flex-shrink:0">${s.img}</div>
         <div style="flex:1;min-width:0;cursor:pointer" ${isManager ? '' : `onclick="startKYT('${s.id}')"`}>
           <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:wrap">
-            ${mkTag('難易度: '+s.difficulty, diffColor[s.difficulty])}
+            ${mkTag('難易度: '+escHtml(s.difficulty), diffColor[s.difficulty])}
             ${isDone && !isManager ? `<span style="background:rgba(31,157,85,.12);color:var(--safe);font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px">✓ 完了 ${scoreLabel}</span>` : ''}
           </div>
           <div style="font-weight:700;font-size:14px;color:var(--navy);margin-bottom:2px;line-height:1.5">${escHtml(s.title)}</div>
@@ -6901,7 +6901,7 @@ function drawKYTQuiz() {
   document.getElementById('kyt-quiz').innerHTML = `
     <button class="btn btn-ghost" style="margin-bottom:14px;font-size:12px" onclick="backKYT()">← 一覧に戻る</button>
     <div class="card">
-      ${mkTag('難易度: '+s.difficulty, diffColor[s.difficulty])}
+      ${mkTag('難易度: '+escHtml(s.difficulty), diffColor[s.difficulty])}
       <div style="position:relative;overflow:hidden;font-size:52px;text-align:center;margin:14px 0;background:var(--surface2);border-radius:10px;padding:22px">
         ${mkCircuitSvg()}${s.img}
       </div>
