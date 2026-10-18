@@ -4257,10 +4257,20 @@ function matchesTag(a, tag) {
 }
 
 // 検索結果に <mark> を付与
+// 検索語を強調表示した HTML を返す。text・q とも利用者の入力なので、必ず文字として埋め込む
+// (元の文字列を検索語で区切ってから各部分を escHtml する。エスケープ後の文字列を置換すると &amp; などを壊すため)
 function highlight(text, q) {
-  if (!q || !text) return text || '';
+  if (!text) return '';
+  if (!q) return escHtml(text);
   const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return text.replace(new RegExp(escaped, 'gi'), m => `<span class="search-highlight">${m}</span>`);
+  const re = new RegExp(escaped, 'gi');
+  let out = '', last = 0, m;
+  while ((m = re.exec(text)) !== null) {
+    if (m[0] === '') { re.lastIndex++; continue; }
+    out += escHtml(text.slice(last, m.index)) + `<span class="search-highlight">${escHtml(m[0])}</span>`;
+    last = m.index + m[0].length;
+  }
+  return out + escHtml(text.slice(last));
 }
 
 // お知らせのHTML生成（1件分）
@@ -4285,8 +4295,9 @@ function renderAnnCard(a, opts={}) {
     mustPending ? 'must-read-pending' : '',
   ].filter(Boolean).join(' ');
 
-  const titleHtml = q ? highlight(a.title, q) : a.title;
-  const bodyHtml  = q ? highlight(a.body, q)  : a.body;
+  // タイトル・本文は管理者の入力なので、HTML ではなく文字として埋め込む(highlight() が escHtml を通す)
+  const titleHtml = highlight(a.title, q);
+  const bodyHtml  = highlight(a.body, q);
 
   return `
   <div class="${cardClasses}">
@@ -4300,7 +4311,7 @@ function renderAnnCard(a, opts={}) {
             ${!isRead && !isManager && !isScheduled && !mustPending ? '<span class="ann-unread-dot" aria-label="未読"></span>' : ''}
             ${mkTag(cat.label, cat.color)}
             ${isManager && a.priority==='high' ? mkTag('🔴 重要','var(--danger)') : ''}
-            ${isManager ? mkTag('対象: '+team.label, 'var(--text-sub)') : ''}
+            ${isManager ? mkTag('対象: '+escHtml(team.label), 'var(--text-sub)') : ''}
             <span style="font-size:12px;color:var(--text-muted)">${escHtml(a.from)}</span>
           </div>
           <div style="font-weight:${isRead && !isManager && !mustPending?500:700};font-size:16px;margin-bottom:4px;color:var(--navy);line-height:1.5">${titleHtml}</div>
@@ -4361,7 +4372,7 @@ function renderAnn() {
     banner.classList.remove('hidden');
     const tagCount = announcements.filter(a => matchesTag(a, tagFilter) && (isManager || a.status==='published')).length;
     document.getElementById('thread-banner-text').innerHTML =
-      `<span style="color:var(--primary)">#${tagFilter}</span> のスレッド（${tagCount}件）`;
+      `<span style="color:var(--primary)">#${escHtml(tagFilter)}</span> のスレッド（${tagCount}件）`;
   } else {
     banner.classList.add('hidden');
   }
@@ -4396,8 +4407,8 @@ function renderAnn() {
   // 空表示
   if (items.length === 0) {
     let icon = '📭', msg = 'お知らせはありません';
-    if (q) { icon = '🔍'; msg = `「${q}」に一致するお知らせはありません`; }
-    else if (tagFilter) { icon = '🏷️'; msg = `#${tagFilter} に該当するお知らせはありません`; }
+    if (q) { icon = '🔍'; msg = `「${escHtml(q)}」に一致するお知らせはありません`; }
+    else if (tagFilter) { icon = '🏷️'; msg = `#${escHtml(tagFilter)} に該当するお知らせはありません`; }
     else if (st.annFilter === 'scheduled') { icon = '⏰'; msg = '予約中のお知らせはありません'; }
     else if (st.annFilter === 'mustread')  { icon = '✋'; msg = '必読のお知らせはありません'; }
     document.getElementById('ann-list').innerHTML = `
@@ -4633,7 +4644,7 @@ function renderAnnDetailBody(id) {
         <div class="related-item" onclick="showAnn('${r.id}')">
           <div style="font-size:18px">${getCat(r.category).label === '安全' ? '🛡️' : getCat(r.category).label === '業務' ? '📋' : getCat(r.category).label === '人事' ? '👥' : '📌'}</div>
           <div class="related-item-content">
-            <div class="related-item-title">${r.title}</div>
+            <div class="related-item-title">${escHtml(r.title)}</div>
             <div class="related-item-meta">${escHtml(r.from)} · ${annTimeLabel(r)}</div>
           </div>
         </div>
@@ -4649,14 +4660,14 @@ function renderAnnDetailBody(id) {
         ${a.mustRead ? '<span class="must-read-badge">✋ 必読</span>' : ''}
         ${mkTag(cat.label, cat.color)}
         ${a.priority==='high'?mkTag('🔴 重要','var(--danger)'):''}
-        ${isManager ? mkTag('対象: '+team.label, 'var(--text-sub)') : ''}
+        ${isManager ? mkTag('対象: '+escHtml(team.label), 'var(--text-sub)') : ''}
       </div>
-      <div style="font-size:19px;font-weight:700;color:var(--navy);margin-bottom:8px;line-height:1.5">${a.title}</div>
+      <div style="font-size:19px;font-weight:700;color:var(--navy);margin-bottom:8px;line-height:1.5">${escHtml(a.title)}</div>
       <div style="color:var(--text-sub);font-size:13px;margin-bottom:4px">${escHtml(a.from)} · ${annTimeLabel(a)}</div>
       ${dl ? `<div class="deadline-text ${dl.level}" style="margin-top:6px"><span>⏱️</span>${dl.text}</div>` : ''}
       ${tagsBlock}
       <div class="divider"></div>
-      <p style="line-height:1.9;font-size:16px;margin:0;white-space:pre-wrap">${a.body}</p>
+      <p style="line-height:1.9;font-size:16px;margin:0;white-space:pre-wrap">${escHtml(a.body)}</p>
       ${ackBlock}
       ${isManager ? `
         <div class="divider"></div>
@@ -4802,13 +4813,13 @@ function openAnnEditor(id) {
         <div class="form-group">
           <label class="form-label">タイトル<span class="form-required">*</span></label>
           <input type="text" id="ed-title" class="input-field" placeholder="例: 6月シフト確認のお願い"
-            value="${init.title.replace(/"/g,'&quot;')}" oninput="updateEditorState()">
+            value="${escHtml(init.title)}" oninput="updateEditorState()">
         </div>
 
         <div class="form-group">
           <label class="form-label">本文<span class="form-required">*</span></label>
           <textarea id="ed-body" class="form-textarea" placeholder="お知らせの内容を入力..."
-            oninput="updateEditorState()">${init.body}</textarea>
+            oninput="updateEditorState()">${escHtml(init.body)}</textarea>
         </div>
 
         <div class="form-group">
@@ -4946,7 +4957,7 @@ function renderEdTags() {
   if (!wrap) return;
   wrap.innerHTML = st.edTags.map((t,i) => `
     <span class="tag-chip-edit">
-      ${t}
+      ${escHtml(t)}
       <button class="tag-chip-remove" onclick="removeEdTag(${i})">✕</button>
     </span>
   `).join('');
@@ -5233,7 +5244,7 @@ function publishNow(id) {
           以下のお知らせを今すぐ配信します。<br>予約時刻を待たずに対象メンバーへ通知されます。
         </p>
         <div style="background:var(--surface2);border-radius:10px;padding:14px;margin-top:14px">
-          <div style="font-weight:700;color:var(--navy);font-size:14px">${a.title}</div>
+          <div style="font-weight:700;color:var(--navy);font-size:14px">${escHtml(a.title)}</div>
           <div style="font-size:12px;color:var(--text-sub);margin-top:6px">
             配信予定: ${fmtSchedDate(a.scheduledAt)} → <span style="color:var(--primary);font-weight:700">即時配信に変更</span>
           </div>
@@ -5276,7 +5287,7 @@ function deleteAnn(id) {
           以下のお知らせを削除します。<br>この操作は取り消せません。
         </p>
         <div style="background:var(--surface2);border-radius:10px;padding:14px;margin-top:14px">
-          <div style="font-weight:700;color:var(--navy);font-size:14px">${a.title}</div>
+          <div style="font-weight:700;color:var(--navy);font-size:14px">${escHtml(a.title)}</div>
           <div style="font-size:12px;color:var(--text-sub);margin-top:4px">${escHtml(a.from)} · ${annTimeLabel(a)}</div>
         </div>
       </div>
@@ -5330,7 +5341,7 @@ async function showReach(id) {
     </div>
 
     <div style="font-size:11px;color:var(--text-muted);letter-spacing:.16em;font-weight:700;margin-bottom:6px">REACH ANALYTICS</div>
-    <div style="font-weight:700;font-size:15px;color:var(--navy);margin-bottom:14px;line-height:1.6">${a.title}</div>
+    <div style="font-weight:700;font-size:15px;color:var(--navy);margin-bottom:14px;line-height:1.6">${escHtml(a.title)}</div>
 
     <div class="reach-hero">
       ${mkCircuitSvg('white',.18)}
@@ -5346,7 +5357,7 @@ async function showReach(id) {
         </div>
       </div>
       <div style="flex:1;position:relative;z-index:1">
-        <div style="font-size:11px;opacity:.85;margin-bottom:4px">対象: ${getTeam(a.target).label}</div>
+        <div style="font-size:11px;opacity:.85;margin-bottom:4px">対象: ${escHtml(getTeam(a.target).label)}</div>
         <div style="font-size:18px;font-weight:700;line-height:1.4">
           ${reach.readCount} / ${reach.total} 名既読
         </div>
