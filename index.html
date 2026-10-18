@@ -2597,7 +2597,7 @@ header {
 // ヘッダーバッジ・ユーザーメニュー・アプリ情報画面・利用状況計測(sessions.appVersion)は
 // すべてこの定数を参照する(#version-badge/#um-version-subtitleへは初期化処理でJSから反映、
 // アプリ情報画面・recordSession()は関数内で直接参照)
-const APP_VERSION = '0.4.8';
+const APP_VERSION = '0.4.9';
 
 /* ===== データ ===== */
 
@@ -3979,6 +3979,7 @@ async function saveNotifPrefs() {
 
 // 更新履歴。git履歴・HANDOFF.md・TECH_DEBT.mdから裏の取れる範囲で記録する(過去分を遡って捏造しない)
 const CHANGELOG = [
+  { version: '0.4.9', items: ['お知らせ・チャット・手順書・KYTで、入力された < > & などの記号がそのまま表示されるように修正'] },
   { version: '0.4.8', items: ['チャットの「安全指導班」を管理者専用の「管理者班」に変更(管理者だけが閲覧・投稿できます)', '班に所属していない乗務員のプロフィール・報告の表示を修正'] },
   { version: '0.4.7', items: ['サーバー側の実行環境を更新(画面の変更はありません)'] },
   { version: '0.4.6', items: ['チャットのメンバー数・メンバー一覧を実際の乗務員に合わせて表示(管理者表示)', 'チャットの「最終投稿」に日付を表示(管理者表示)', 'KYTのメンバー別完了状況を折りたたみ表示に(管理者表示)', 'チャットの固定表示「オンライン 5名」とゲームのサンプル人員表示を削除'] },
@@ -4257,10 +4258,20 @@ function matchesTag(a, tag) {
 }
 
 // 検索結果に <mark> を付与
+// 検索語を強調表示した HTML を返す。text・q とも利用者の入力なので、必ず文字として埋め込む
+// (元の文字列を検索語で区切ってから各部分を escHtml する。エスケープ後の文字列を置換すると &amp; などを壊すため)
 function highlight(text, q) {
-  if (!q || !text) return text || '';
+  if (!text) return '';
+  if (!q) return escHtml(text);
   const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return text.replace(new RegExp(escaped, 'gi'), m => `<span class="search-highlight">${m}</span>`);
+  const re = new RegExp(escaped, 'gi');
+  let out = '', last = 0, m;
+  while ((m = re.exec(text)) !== null) {
+    if (m[0] === '') { re.lastIndex++; continue; }
+    out += escHtml(text.slice(last, m.index)) + `<span class="search-highlight">${escHtml(m[0])}</span>`;
+    last = m.index + m[0].length;
+  }
+  return out + escHtml(text.slice(last));
 }
 
 // お知らせのHTML生成（1件分）
@@ -4285,8 +4296,9 @@ function renderAnnCard(a, opts={}) {
     mustPending ? 'must-read-pending' : '',
   ].filter(Boolean).join(' ');
 
-  const titleHtml = q ? highlight(a.title, q) : a.title;
-  const bodyHtml  = q ? highlight(a.body, q)  : a.body;
+  // タイトル・本文は管理者の入力なので、HTML ではなく文字として埋め込む(highlight() が escHtml を通す)
+  const titleHtml = highlight(a.title, q);
+  const bodyHtml  = highlight(a.body, q);
 
   return `
   <div class="${cardClasses}">
@@ -4300,7 +4312,7 @@ function renderAnnCard(a, opts={}) {
             ${!isRead && !isManager && !isScheduled && !mustPending ? '<span class="ann-unread-dot" aria-label="未読"></span>' : ''}
             ${mkTag(cat.label, cat.color)}
             ${isManager && a.priority==='high' ? mkTag('🔴 重要','var(--danger)') : ''}
-            ${isManager ? mkTag('対象: '+team.label, 'var(--text-sub)') : ''}
+            ${isManager ? mkTag('対象: '+escHtml(team.label), 'var(--text-sub)') : ''}
             <span style="font-size:12px;color:var(--text-muted)">${escHtml(a.from)}</span>
           </div>
           <div style="font-weight:${isRead && !isManager && !mustPending?500:700};font-size:16px;margin-bottom:4px;color:var(--navy);line-height:1.5">${titleHtml}</div>
@@ -4361,7 +4373,7 @@ function renderAnn() {
     banner.classList.remove('hidden');
     const tagCount = announcements.filter(a => matchesTag(a, tagFilter) && (isManager || a.status==='published')).length;
     document.getElementById('thread-banner-text').innerHTML =
-      `<span style="color:var(--primary)">#${tagFilter}</span> のスレッド（${tagCount}件）`;
+      `<span style="color:var(--primary)">#${escHtml(tagFilter)}</span> のスレッド（${tagCount}件）`;
   } else {
     banner.classList.add('hidden');
   }
@@ -4396,8 +4408,8 @@ function renderAnn() {
   // 空表示
   if (items.length === 0) {
     let icon = '📭', msg = 'お知らせはありません';
-    if (q) { icon = '🔍'; msg = `「${q}」に一致するお知らせはありません`; }
-    else if (tagFilter) { icon = '🏷️'; msg = `#${tagFilter} に該当するお知らせはありません`; }
+    if (q) { icon = '🔍'; msg = `「${escHtml(q)}」に一致するお知らせはありません`; }
+    else if (tagFilter) { icon = '🏷️'; msg = `#${escHtml(tagFilter)} に該当するお知らせはありません`; }
     else if (st.annFilter === 'scheduled') { icon = '⏰'; msg = '予約中のお知らせはありません'; }
     else if (st.annFilter === 'mustread')  { icon = '✋'; msg = '必読のお知らせはありません'; }
     document.getElementById('ann-list').innerHTML = `
@@ -4633,7 +4645,7 @@ function renderAnnDetailBody(id) {
         <div class="related-item" onclick="showAnn('${r.id}')">
           <div style="font-size:18px">${getCat(r.category).label === '安全' ? '🛡️' : getCat(r.category).label === '業務' ? '📋' : getCat(r.category).label === '人事' ? '👥' : '📌'}</div>
           <div class="related-item-content">
-            <div class="related-item-title">${r.title}</div>
+            <div class="related-item-title">${escHtml(r.title)}</div>
             <div class="related-item-meta">${escHtml(r.from)} · ${annTimeLabel(r)}</div>
           </div>
         </div>
@@ -4649,14 +4661,14 @@ function renderAnnDetailBody(id) {
         ${a.mustRead ? '<span class="must-read-badge">✋ 必読</span>' : ''}
         ${mkTag(cat.label, cat.color)}
         ${a.priority==='high'?mkTag('🔴 重要','var(--danger)'):''}
-        ${isManager ? mkTag('対象: '+team.label, 'var(--text-sub)') : ''}
+        ${isManager ? mkTag('対象: '+escHtml(team.label), 'var(--text-sub)') : ''}
       </div>
-      <div style="font-size:19px;font-weight:700;color:var(--navy);margin-bottom:8px;line-height:1.5">${a.title}</div>
+      <div style="font-size:19px;font-weight:700;color:var(--navy);margin-bottom:8px;line-height:1.5">${escHtml(a.title)}</div>
       <div style="color:var(--text-sub);font-size:13px;margin-bottom:4px">${escHtml(a.from)} · ${annTimeLabel(a)}</div>
       ${dl ? `<div class="deadline-text ${dl.level}" style="margin-top:6px"><span>⏱️</span>${dl.text}</div>` : ''}
       ${tagsBlock}
       <div class="divider"></div>
-      <p style="line-height:1.9;font-size:16px;margin:0;white-space:pre-wrap">${a.body}</p>
+      <p style="line-height:1.9;font-size:16px;margin:0;white-space:pre-wrap">${escHtml(a.body)}</p>
       ${ackBlock}
       ${isManager ? `
         <div class="divider"></div>
@@ -4802,13 +4814,13 @@ function openAnnEditor(id) {
         <div class="form-group">
           <label class="form-label">タイトル<span class="form-required">*</span></label>
           <input type="text" id="ed-title" class="input-field" placeholder="例: 6月シフト確認のお願い"
-            value="${init.title.replace(/"/g,'&quot;')}" oninput="updateEditorState()">
+            value="${escHtml(init.title)}" oninput="updateEditorState()">
         </div>
 
         <div class="form-group">
           <label class="form-label">本文<span class="form-required">*</span></label>
           <textarea id="ed-body" class="form-textarea" placeholder="お知らせの内容を入力..."
-            oninput="updateEditorState()">${init.body}</textarea>
+            oninput="updateEditorState()">${escHtml(init.body)}</textarea>
         </div>
 
         <div class="form-group">
@@ -4946,7 +4958,7 @@ function renderEdTags() {
   if (!wrap) return;
   wrap.innerHTML = st.edTags.map((t,i) => `
     <span class="tag-chip-edit">
-      ${t}
+      ${escHtml(t)}
       <button class="tag-chip-remove" onclick="removeEdTag(${i})">✕</button>
     </span>
   `).join('');
@@ -5233,7 +5245,7 @@ function publishNow(id) {
           以下のお知らせを今すぐ配信します。<br>予約時刻を待たずに対象メンバーへ通知されます。
         </p>
         <div style="background:var(--surface2);border-radius:10px;padding:14px;margin-top:14px">
-          <div style="font-weight:700;color:var(--navy);font-size:14px">${a.title}</div>
+          <div style="font-weight:700;color:var(--navy);font-size:14px">${escHtml(a.title)}</div>
           <div style="font-size:12px;color:var(--text-sub);margin-top:6px">
             配信予定: ${fmtSchedDate(a.scheduledAt)} → <span style="color:var(--primary);font-weight:700">即時配信に変更</span>
           </div>
@@ -5276,7 +5288,7 @@ function deleteAnn(id) {
           以下のお知らせを削除します。<br>この操作は取り消せません。
         </p>
         <div style="background:var(--surface2);border-radius:10px;padding:14px;margin-top:14px">
-          <div style="font-weight:700;color:var(--navy);font-size:14px">${a.title}</div>
+          <div style="font-weight:700;color:var(--navy);font-size:14px">${escHtml(a.title)}</div>
           <div style="font-size:12px;color:var(--text-sub);margin-top:4px">${escHtml(a.from)} · ${annTimeLabel(a)}</div>
         </div>
       </div>
@@ -5330,7 +5342,7 @@ async function showReach(id) {
     </div>
 
     <div style="font-size:11px;color:var(--text-muted);letter-spacing:.16em;font-weight:700;margin-bottom:6px">REACH ANALYTICS</div>
-    <div style="font-weight:700;font-size:15px;color:var(--navy);margin-bottom:14px;line-height:1.6">${a.title}</div>
+    <div style="font-weight:700;font-size:15px;color:var(--navy);margin-bottom:14px;line-height:1.6">${escHtml(a.title)}</div>
 
     <div class="reach-hero">
       ${mkCircuitSvg('white',.18)}
@@ -5346,7 +5358,7 @@ async function showReach(id) {
         </div>
       </div>
       <div style="flex:1;position:relative;z-index:1">
-        <div style="font-size:11px;opacity:.85;margin-bottom:4px">対象: ${getTeam(a.target).label}</div>
+        <div style="font-size:11px;opacity:.85;margin-bottom:4px">対象: ${escHtml(getTeam(a.target).label)}</div>
         <div style="font-size:18px;font-weight:700;line-height:1.4">
           ${reach.readCount} / ${reach.total} 名既読
         </div>
@@ -5374,7 +5386,7 @@ async function showReach(id) {
         </div>
         ${unreadUsers.map(u => `
           <div class="user-row">
-            <div class="msg-av" style="background:#5B8FE0">${(u.name||'?')[0]}</div>
+            <div class="msg-av" style="background:#5B8FE0">${escHtml((u.name||'?')[0])}</div>
             <div class="user-info">
               <div class="user-name">${escHtml(u.name)}</div>
               <div class="user-meta">${escHtml(getTeamLabel(u.team))} · ${escHtml(u.driverNo)}</div>
@@ -5392,7 +5404,7 @@ async function showReach(id) {
         </div>
         ${readUsers.map(u => `
           <div class="user-row">
-            <div class="msg-av" style="background:linear-gradient(135deg,#0D3D9E,#3F8CEF)">${(u.name||'?')[0]}</div>
+            <div class="msg-av" style="background:linear-gradient(135deg,#0D3D9E,#3F8CEF)">${escHtml((u.name||'?')[0])}</div>
             <div class="user-info">
               <div class="user-name">${escHtml(u.name)}</div>
               <div class="user-meta">${escHtml(getTeamLabel(u.team))} · ${escHtml(u.driverNo)}</div>
@@ -5655,7 +5667,7 @@ function renderChat() {
     }
     return `${sep}
     <div class="msg-row${isMe?' me':''}" data-mid="${m.id}">
-      ${!isMe ? `<div class="msg-av" style="background:${isAdminMsg?'linear-gradient(135deg,#0D3D9E,#3F8CEF)':'#5B8FE0'}">${(m.senderName||'?')[0]}</div>` : ''}
+      ${!isMe ? `<div class="msg-av" style="background:${isAdminMsg?'linear-gradient(135deg,#0D3D9E,#3F8CEF)':'#5B8FE0'}">${escHtml((m.senderName||'?')[0])}</div>` : ''}
       <div class="msg-wrap">
         ${!isMe ? `<div class="msg-name">${escHtml(m.senderName)}${isAdminMsg?'<span style="font-size:9px;background:rgba(13,61,158,.15);color:var(--navy);padding:1px 5px;border-radius:4px;margin-left:5px;letter-spacing:.04em;font-weight:700">管理者</span>':''}</div>` : ''}
         <div class="msg-bubble${isMe?' me':''}${m.deleted?' deleted':''}">${m.deleted ? '<em style="opacity:.6">このメッセージは管理者により削除されました</em>' : escHtml(m.text)}</div>
@@ -6039,7 +6051,7 @@ function attachManualReadsListener(manualId) {
                 <div class="msg-av" style="background:#5B8FE0">${escHtml((u.name||'?')[0])}</div>
                 <div class="user-info">
                   <div class="user-name">${escHtml(u.name)}</div>
-                  <div class="user-meta">${getTeamLabel(u.team)} · ${escHtml(u.code)}</div>
+                  <div class="user-meta">${escHtml(getTeamLabel(u.team))} · ${escHtml(u.code)}</div>
                 </div>
                 <span class="user-status unread">未読</span>
               </div>
@@ -6054,7 +6066,7 @@ function attachManualReadsListener(manualId) {
                 <div class="msg-av" style="background:linear-gradient(135deg,#0D3D9E,#3F8CEF)">${escHtml((u.name||'?')[0])}</div>
                 <div class="user-info">
                   <div class="user-name">${escHtml(u.name)}</div>
-                  <div class="user-meta">${getTeamLabel(u.team)} · ${escHtml(u.code)}</div>
+                  <div class="user-meta">${escHtml(getTeamLabel(u.team))} · ${escHtml(u.code)}</div>
                 </div>
                 <span class="user-status read">既読</span>
               </div>
@@ -6114,7 +6126,7 @@ function renderMan(q='') {
       <div style="font-size:26px">${m.icon}</div>
       <div style="font-weight:700;font-size:15px;color:var(--navy);line-height:1.5">${escHtml(m.title)}</div>
       <div style="display:flex;gap:5px;flex-wrap:wrap">
-        ${mkTag(m.category,'var(--primary)')}
+        ${mkTag(escHtml(m.category),'var(--primary)')}
       </div>
       ${isManager
         ? `<div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-sub);margin-top:4px">
@@ -6155,7 +6167,7 @@ function showMan(id) {
     <div class="card">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">
         ${m.mustRead ? '<span class="must-read-badge">✋ 必読</span>' : ''}
-        ${mkTag(m.category,'var(--primary)')}
+        ${mkTag(escHtml(m.category),'var(--primary)')}
         ${!m.fileUrl ? mkTag('サンプル(実ファイルなし)','var(--text-muted)') : ''}
       </div>
       <div style="font-size:32px;margin-bottom:10px">${m.icon}</div>
@@ -6714,7 +6726,7 @@ function renderKYTList() {
         <div style="font-size:32px;flex-shrink:0">${s.img}</div>
         <div style="flex:1;min-width:0;cursor:pointer" ${isManager ? '' : `onclick="startKYT('${s.id}')"`}>
           <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:wrap">
-            ${mkTag('難易度: '+s.difficulty, diffColor[s.difficulty])}
+            ${mkTag('難易度: '+escHtml(s.difficulty), diffColor[s.difficulty])}
             ${isDone && !isManager ? `<span style="background:rgba(31,157,85,.12);color:var(--safe);font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px">✓ 完了 ${scoreLabel}</span>` : ''}
           </div>
           <div style="font-weight:700;font-size:14px;color:var(--navy);margin-bottom:2px;line-height:1.5">${escHtml(s.title)}</div>
@@ -6890,7 +6902,7 @@ function drawKYTQuiz() {
   document.getElementById('kyt-quiz').innerHTML = `
     <button class="btn btn-ghost" style="margin-bottom:14px;font-size:12px" onclick="backKYT()">← 一覧に戻る</button>
     <div class="card">
-      ${mkTag('難易度: '+s.difficulty, diffColor[s.difficulty])}
+      ${mkTag('難易度: '+escHtml(s.difficulty), diffColor[s.difficulty])}
       <div style="position:relative;overflow:hidden;font-size:52px;text-align:center;margin:14px 0;background:var(--surface2);border-radius:10px;padding:22px">
         ${mkCircuitSvg()}${s.img}
       </div>
@@ -6968,11 +6980,11 @@ function openKytEditor(id) {
         </div>
         <div class="form-group">
           <label class="form-label">タイトル <span class="form-required">*</span></label>
-          <input type="text" id="kyt-ed-title" class="input-field" value="${init.title.replace(/"/g,'&quot;')}" placeholder="例: 冷凍庫前での急ぎ搬入" oninput="updateKytSaveBtn()">
+          <input type="text" id="kyt-ed-title" class="input-field" value="${escHtml(init.title)}" placeholder="例: 冷凍庫前での急ぎ搬入" oninput="updateKytSaveBtn()">
         </div>
         <div class="form-group">
           <label class="form-label">状況説明 <span class="form-required">*</span></label>
-          <textarea id="kyt-ed-desc" class="input-field" rows="4" placeholder="どのような状況か説明してください..." style="resize:vertical;line-height:1.7" oninput="updateKytSaveBtn()">${init.desc}</textarea>
+          <textarea id="kyt-ed-desc" class="input-field" rows="4" placeholder="どのような状況か説明してください..." style="resize:vertical;line-height:1.7" oninput="updateKytSaveBtn()">${escHtml(init.desc)}</textarea>
         </div>
         <div class="form-group">
           <label class="form-label">難易度</label>
@@ -6981,7 +6993,7 @@ function openKytEditor(id) {
             <button class="seg-btn${init.difficulty==='中'?' active':''}" onclick="selectKytDiff('中',this)" data-diff="中">🔵 中</button>
             <button class="seg-btn${init.difficulty==='高'?' active':''}" onclick="selectKytDiff('高',this)" data-diff="高">🔴 高</button>
           </div>
-          <input type="hidden" id="kyt-diff-val" value="${init.difficulty}">
+          <input type="hidden" id="kyt-diff-val" value="${escHtml(init.difficulty)}">
         </div>
         <div class="form-group">
           <label class="form-label">危険ポイント（正解の選択肢）<span class="form-required">*</span></label>
@@ -6990,7 +7002,7 @@ function openKytEditor(id) {
             ${init.hints.map((h,i) => `
               <div style="display:flex;gap:6px;margin-bottom:8px">
                 <span style="font-size:12px;color:var(--text-muted);padding-top:12px;flex-shrink:0;width:18px">${i+1}</span>
-                <input type="text" class="input-field kyt-hint-input" value="${h.replace(/"/g,'&quot;')}" placeholder="危険ポイントを入力..." oninput="updateKytSaveBtn()" style="flex:1">
+                <input type="text" class="input-field kyt-hint-input" value="${escHtml(h)}" placeholder="危険ポイントを入力..." oninput="updateKytSaveBtn()" style="flex:1">
                 <button onclick="removeKytHint(this)" style="background:none;border:none;color:var(--text-muted);font-size:18px;padding:0 4px;cursor:pointer;flex-shrink:0">✕</button>
               </div>
             `).join('')}
