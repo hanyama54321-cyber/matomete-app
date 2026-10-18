@@ -6979,11 +6979,11 @@ function openKytEditor(id) {
         </div>
         <div class="form-group">
           <label class="form-label">タイトル <span class="form-required">*</span></label>
-          <input type="text" id="kyt-ed-title" class="input-field" value="${init.title.replace(/"/g,'&quot;')}" placeholder="例: 冷凍庫前での急ぎ搬入" oninput="updateKytSaveBtn()">
+          <input type="text" id="kyt-ed-title" class="input-field" value="${escHtml(init.title)}" placeholder="例: 冷凍庫前での急ぎ搬入" oninput="updateKytSaveBtn()">
         </div>
         <div class="form-group">
           <label class="form-label">状況説明 <span class="form-required">*</span></label>
-          <textarea id="kyt-ed-desc" class="input-field" rows="4" placeholder="どのような状況か説明してください..." style="resize:vertical;line-height:1.7" oninput="updateKytSaveBtn()">${init.desc}</textarea>
+          <textarea id="kyt-ed-desc" class="input-field" rows="4" placeholder="どのような状況か説明してください..." style="resize:vertical;line-height:1.7" oninput="updateKytSaveBtn()">${escHtml(init.desc)}</textarea>
         </div>
         <div class="form-group">
           <label class="form-label">難易度</label>
@@ -6992,7 +6992,7 @@ function openKytEditor(id) {
             <button class="seg-btn${init.difficulty==='中'?' active':''}" onclick="selectKytDiff('中',this)" data-diff="中">🔵 中</button>
             <button class="seg-btn${init.difficulty==='高'?' active':''}" onclick="selectKytDiff('高',this)" data-diff="高">🔴 高</button>
           </div>
-          <input type="hidden" id="kyt-diff-val" value="${init.difficulty}">
+          <input type="hidden" id="kyt-diff-val" value="${escHtml(init.difficulty)}">
         </div>
         <div class="form-group">
           <label class="form-label">危険ポイント（正解の選択肢）<span class="form-required">*</span></label>
@@ -7001,7 +7001,7 @@ function openKytEditor(id) {
             ${init.hints.map((h,i) => `
               <div style="display:flex;gap:6px;margin-bottom:8px">
                 <span style="font-size:12px;color:var(--text-muted);padding-top:12px;flex-shrink:0;width:18px">${i+1}</span>
-                <input type="text" class="input-field kyt-hint-input" value="${h.replace(/"/g,'&quot;')}" placeholder="危険ポイントを入力..." oninput="updateKytSaveBtn()" style="flex:1">
+                <input type="text" class="input-field kyt-hint-input" value="${escHtml(h)}" placeholder="危険ポイントを入力..." oninput="updateKytSaveBtn()" style="flex:1">
                 <button onclick="removeKytHint(this)" style="background:none;border:none;color:var(--text-muted);font-size:18px;padding:0 4px;cursor:pointer;flex-shrink:0">✕</button>
               </div>
             `).join('')}
