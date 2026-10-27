@@ -9567,11 +9567,17 @@ fbAuth.onAuthStateChanged(async (user) => {
 
     showAppScreen();
 
-    // ログイン成功時にチャットチャンネル(既定: general)のリスナーを開始
-    currentChannel = 'general';
-    document.getElementById('ch-title').textContent = '全体連絡';
+    // ログイン成功時にチャットチャンネルのリスナーを開始。管理者権限(Firestore の role)を持つ人は
+    // 管理者班、それ以外は全体連絡を最初に表示する(v0.5.2)。画面の「管理者 ON/OFF」(st.role)では判定しない。
+    // メンテ用コードも管理者権限なので管理者班。teams がまだ届いていなければ呼称は「管理者班」で出す
+    const isAdminAccount = fbUser.role === 'admin';
+    currentChannel = isAdminAccount ? ADMIN_ROOM_ID : 'general';
+    document.getElementById('ch-title').textContent = isAdminAccount
+      ? ((teams.find(t => t.id === ADMIN_ROOM_ID) || {}).displayName || '管理者班')
+      : '全体連絡';
     attachChannelListener(currentChannel);
     renderChannelChips();
+    updateChatInputState();   // 入力欄(書き込み可否)を初期チャンネルに合わせる
   } catch (err) {
     console.error('認証後のユーザー情報取得に失敗:', err);
     await fbAuth.signOut();
