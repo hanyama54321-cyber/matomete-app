@@ -1972,6 +1972,12 @@ header {
 .ann-img-failed .ann-img { display: none; }
 .ann-img-failed .ann-img-btn { cursor: default; }
 .ann-img-failed .ann-img-btn::after { content: '画像を読み込めませんでした'; display: block; padding: 22px 12px; border: 1px dashed var(--border); border-radius: 10px; color: var(--text-muted); font-size: 13px; text-align: center; }
+/* ===== v0.5.2 定型タグのボタン(投稿画面) ===== */
+.ed-preset-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; }
+.ed-preset-label { font-size: 12px; color: var(--text-sub); margin-right: 2px; }
+.ed-preset-tag { min-height: 34px; padding: 4px 12px; border-radius: 999px; border: 1.5px solid var(--border); background: var(--surface); color: var(--navy); font-size: 13px; font-weight: 600; cursor: pointer; }
+.ed-preset-tag.on { background: var(--primary); border-color: var(--primary); color: #fff; }
+.ed-preset-tag.on::before { content: '✓ '; }   /* 色だけに頼らず形でも選択中が分かるように */
 /* ===== v0.5.1 周知まとめ(印刷) =====
    見本 docs/samples/周知まとめ_サンプル.html の CSS を pr- 接頭辞で移したもの。
    画面表示時の #app / #bottom-nav / body / html には触れない(@media print の中だけで隠す) */
@@ -2698,7 +2704,7 @@ header {
 // ヘッダーバッジ・ユーザーメニュー・アプリ情報画面・利用状況計測(sessions.appVersion)は
 // すべてこの定数を参照する(#version-badge/#um-version-subtitleへは初期化処理でJSから反映、
 // アプリ情報画面・recordSession()は関数内で直接参照)
-const APP_VERSION = '0.5.1';
+const APP_VERSION = '0.5.2';
 
 /* ===== データ ===== */
 
@@ -2756,14 +2762,8 @@ function attachTeamsListener() {
 
 const getTeamLabel = id => (teams.find(t => t.id === id) || {}).label || id || '—';
 
-// カテゴリ（タグ）定義
-const annCategories = [
-  { id:'safety',  label:'安全',  color:'var(--danger)' },
-  { id:'work',    label:'業務',  color:'var(--primary)' },
-  { id:'hr',      label:'人事',  color:'var(--safe)' },
-  { id:'system',  label:'設備',  color:'var(--purple)' },
-  { id:'other',   label:'その他', color:'var(--text-sub)' },
-];
+// 周知のカテゴリ(annCategories / getCat)は v0.5.2 で画面から廃止し、定義も削除した。
+// 既存のお知らせの category フィールドはデータとして残るが、どこからも参照しない(定型タグ ANN_PRESET_TAGS へ移行)
 
 
 /* ===== 周知(お知らせ) =====
@@ -2914,7 +2914,6 @@ const st = {
 /* ===== ヘルパー ===== */
 const diffColor = { '低':'var(--safe)', '中':'var(--primary)', '高':'var(--danger)' };
 
-const getCat   = id => annCategories.find(c => c.id === id) || annCategories[4];
 const getTeam  = id => teams.find(t => t.id === id) || teams[0];
 
 // 対象グループに属するドライバーを取得（現在の呼び出し元はチャットのgetChannelMembers()のみ）
@@ -4080,6 +4079,7 @@ async function saveNotifPrefs() {
 
 // 更新履歴。git履歴・HANDOFF.md・TECH_DEBT.mdから裏の取れる範囲で記録する(過去分を遡って捏造しない)
 const CHANGELOG = [
+  { version: '0.5.2', items: ['お知らせのカテゴリを廃止し、よく使うタグ(安全・業務・設備・その他・センター)をボタンで付けられるように', '管理者はチャットを開くと最初から「管理者班」が表示されるように'] },
   { version: '0.5.1', items: ['お知らせに管理者の「確認済」ボタンを追加(管理者どうしで確認状況を共有)', '「周知まとめ」を追加(選んだお知らせをA4 1枚に印刷。管理者のみ)'] },
   { version: '0.5', items: ['お知らせに画像を添付できるように(1件につき最大3枚。本文の下に表示)', '画像をタップすると全画面で表示し、拡大して細部まで見られます', '一覧で画像付きのお知らせに🖼マークを表示'] },
   { version: '0.4.9', items: ['お知らせ・チャット・手順書・KYTで、入力された < > & などの記号がそのまま表示されるように修正'] },
@@ -4348,7 +4348,6 @@ function matchesSearch(a, q) {
   const lower = q.toLowerCase();
   const haystacks = [
     a.title, a.body, a.from,
-    getCat(a.category).label,
     (a.tags || []).join(' '),
   ];
   return haystacks.some(h => (h || '').toLowerCase().includes(lower));
@@ -4380,7 +4379,6 @@ function highlight(text, q) {
 // お知らせのHTML生成（1件分）
 function renderAnnCard(a, opts={}) {
   const isManager = st.role === 'manager';
-  const cat = getCat(a.category);
   const team = getTeam(a.target);
   const reach = calcReach(a);
   const isScheduled = a.status === 'scheduled';
@@ -4413,7 +4411,6 @@ function renderAnnCard(a, opts={}) {
             ${a.mustRead ? '<span class="must-read-badge">✋ 必読</span>' : ''}
             ${isScheduled ? `<span class="scheduled-badge">⏰ ${fmtSchedDate(a.scheduledAt)} 配信予定</span>` : ''}
             ${!isRead && !isManager && !isScheduled && !mustPending ? '<span class="ann-unread-dot" aria-label="未読"></span>' : ''}
-            ${mkTag(cat.label, cat.color)}
             ${isManager && a.priority==='high' ? mkTag('🔴 重要','var(--danger)') : ''}
             ${isManager ? mkTag('対象: '+escHtml(team.label), 'var(--text-sub)') : ''}
             <span style="font-size:12px;color:var(--text-muted)">${escHtml(a.from)}</span>
@@ -4688,7 +4685,6 @@ function renderAnnDetailBody(id) {
   const a = findAnn(id);
   if (!a) return;
   const isManager = st.role === 'manager';
-  const cat = getCat(a.category);
   const team = getTeam(a.target);
   const dl = deadlineInfo(a.readDeadline);
 
@@ -4749,7 +4745,7 @@ function renderAnnDetailBody(id) {
       </div>
       ${related.slice(0,5).map(r => `
         <div class="related-item" onclick="showAnn('${r.id}')">
-          <div style="font-size:18px">${getCat(r.category).label === '安全' ? '🛡️' : getCat(r.category).label === '業務' ? '📋' : getCat(r.category).label === '人事' ? '👥' : '📌'}</div>
+          <div style="font-size:18px">📌</div>
           <div class="related-item-content">
             <div class="related-item-title">${escHtml(r.title)}</div>
             <div class="related-item-meta">${escHtml(r.from)} · ${annTimeLabel(r)}</div>
@@ -4765,7 +4761,6 @@ function renderAnnDetailBody(id) {
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
         ${a.pinned?mkTag('📌 固定','var(--primary)'):''}
         ${a.mustRead ? '<span class="must-read-badge">✋ 必読</span>' : ''}
-        ${mkTag(cat.label, cat.color)}
         ${a.priority==='high'?mkTag('🔴 重要','var(--danger)'):''}
         ${isManager ? mkTag('対象: '+escHtml(team.label), 'var(--text-sub)') : ''}
       </div>
@@ -5360,7 +5355,6 @@ function openAnnEditor(id) {
   const init = a || {
     title: '',
     body: '',
-    category: 'work',
     priority: 'normal',
     target: 'all',
     pinned: false,
@@ -5371,8 +5365,8 @@ function openAnnEditor(id) {
     scheduledAt: null,
   };
 
-  // タグ初期化
-  st.edTags = (init.tags || []).slice();
+  // タグ初期化。新規作成は定型タグ「安全」が付いた状態で開く(v0.5.2)。編集は既存のタグのまま
+  st.edTags = isEdit ? (init.tags || []).slice() : [ANN_DEFAULT_TAG];
   // 画像初期化(v0.5)。既存分は {url,path,w,h}、新しく選んだ分は {blob,previewUrl,w,h}
   edImagesReset((init.images || []).map(img => ({ url: img.url, path: img.path, w: img.w, h: img.h })));
 
@@ -5430,17 +5424,11 @@ function openAnnEditor(id) {
         </div>
 
         <div class="form-group">
-          <label class="form-label">カテゴリ</label>
-          <div id="ed-cats" style="display:flex;flex-wrap:wrap;gap:8px">
-            ${annCategories.map(c => `
-              <button class="chip${init.category===c.id?' active':''}" data-cat="${c.id}"
-                onclick="selEdCat('${c.id}')">${c.label}</button>
-            `).join('')}
-          </div>
-        </div>
-
-        <div class="form-group">
           <label class="form-label">タグ <span style="font-weight:500;color:var(--text-muted);font-size:11px">（関連お知らせのスレッド化に利用）</span></label>
+          <div class="ed-preset-tags">
+            <span class="ed-preset-label">よく使うタグ：</span>
+            ${ANN_PRESET_TAGS.map(tag => `<button type="button" class="ed-preset-tag" data-ed-preset-tag="${escHtml(tag)}" aria-pressed="false">${escHtml(tag)}</button>`).join('')}
+          </div>
           <div class="tag-input-wrap" id="ed-tag-wrap" onclick="document.getElementById('ed-tag-input').focus()">
             <span id="ed-tag-chips"></span>
             <input type="text" id="ed-tag-input" class="tag-input-field"
@@ -5547,7 +5535,6 @@ function openAnnEditor(id) {
 
   // エディタの選択状態を保持
   st.edState = {
-    category: init.category,
     priority: init.priority,
     pinned:   init.pinned,
     timing:   isScheduledInit ? 'scheduled' : 'now',
@@ -5555,6 +5542,7 @@ function openAnnEditor(id) {
     hasDeadline: hasDeadline,
   };
   renderEdTags();
+  bindDataClick(document.querySelector('#modal-root .ed-preset-tags'), 'data-ed-preset-tag', tag => toggleEdPresetTag(tag));
   renderEdImages();
   updateEditorState();
 }
@@ -5710,7 +5698,36 @@ async function deleteStoragePaths(paths) {
 }
 
 /* === エディタ タグ入力 === */
+/* 定型タグ(v0.5.2)。周知のカテゴリの代わりに、タグ欄の上のボタンで付け外しする */
+const ANN_PRESET_TAGS = ['安全', '業務', '設備', 'その他', 'センター'];
+const ANN_DEFAULT_TAG = '安全';   // 新規作成時に最初から付けておくタグ
+
+// 定型タグのボタン: 付いていなければ追加、付いていれば外す。上限(5個)・重複不可は手入力と同じ
+function toggleEdPresetTag(tag) {
+  const i = st.edTags.indexOf(tag);
+  if (i >= 0) {
+    st.edTags.splice(i, 1);
+  } else {
+    if (st.edTags.length >= 5) {
+      showToast('⚠️ タグは最大5個までです');
+      return;
+    }
+    st.edTags.push(tag);
+  }
+  renderEdTags();
+}
+
+// 定型タグのボタンの選択状態を st.edTags に合わせる(✕で外した・手入力した場合も連動する)
+function renderEdPresetTags() {
+  document.querySelectorAll('#modal-root [data-ed-preset-tag]').forEach(btn => {
+    const on = st.edTags.includes(btn.getAttribute('data-ed-preset-tag'));
+    btn.classList.toggle('on', on);
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+}
+
 function renderEdTags() {
+  renderEdPresetTags();
   const wrap = document.getElementById('ed-tag-chips');
   if (!wrap) return;
   wrap.innerHTML = st.edTags.map((t,i) => `
@@ -5769,13 +5786,6 @@ function toggleEdDeadline() {
   st.edState.hasDeadline = !st.edState.hasDeadline;
   document.getElementById('ed-deadline-toggle').classList.toggle('on', st.edState.hasDeadline);
   document.getElementById('ed-deadline-fields').classList.toggle('hidden', !st.edState.hasDeadline);
-}
-
-function selEdCat(id) {
-  st.edState.category = id;
-  document.querySelectorAll('#ed-cats .chip').forEach(b => {
-    b.classList.toggle('active', b.dataset.cat === id);
-  });
 }
 
 function selEdPrio(id) {
@@ -5919,7 +5929,7 @@ async function saveAnn() {
 
   const payload = {
     title, body,
-    category: ed.category,
+    // category は v0.5.2 で画面から廃止。新規は書かず、編集では既存の値に触れない(update の対象から外す)
     priority: ed.priority,
     target: 'all', // 配信範囲は全員向けのみ(班別配信は設けない)
     pinned: ed.pinned,
@@ -6283,7 +6293,6 @@ async function exportAnnCsv(id) {
   const status = await fetchAnnReadStatus(a.id);
   const { reach, ackedCount } = status;
 
-  const cat = getCat(a.category);
   const prio = priorityMap[a.priority];
   const team = getTeam(a.target);
   const targets = reach.targets;
@@ -6293,7 +6302,6 @@ async function exportAnnCsv(id) {
   // ヘッダ部（メタ情報）
   const meta = [
     ['お知らせタイトル', a.title],
-    ['カテゴリ',         cat.label],
     ['優先度',           prio.label],
     ['必読',             a.mustRead ? 'はい' : 'いいえ'],
     ['既読期限',         a.readDeadline || '—'],
@@ -9560,11 +9568,17 @@ fbAuth.onAuthStateChanged(async (user) => {
 
     showAppScreen();
 
-    // ログイン成功時にチャットチャンネル(既定: general)のリスナーを開始
-    currentChannel = 'general';
-    document.getElementById('ch-title').textContent = '全体連絡';
+    // ログイン成功時にチャットチャンネルのリスナーを開始。管理者権限(Firestore の role)を持つ人は
+    // 管理者班、それ以外は全体連絡を最初に表示する(v0.5.2)。画面の「管理者 ON/OFF」(st.role)では判定しない。
+    // メンテ用コードも管理者権限なので管理者班。teams がまだ届いていなければ呼称は「管理者班」で出す
+    const isAdminAccount = fbUser.role === 'admin';
+    currentChannel = isAdminAccount ? ADMIN_ROOM_ID : 'general';
+    document.getElementById('ch-title').textContent = isAdminAccount
+      ? ((teams.find(t => t.id === ADMIN_ROOM_ID) || {}).displayName || '管理者班')
+      : '全体連絡';
     attachChannelListener(currentChannel);
     renderChannelChips();
+    updateChatInputState();   // 入力欄(書き込み可否)を初期チャンネルに合わせる
   } catch (err) {
     console.error('認証後のユーザー情報取得に失敗:', err);
     await fbAuth.signOut();
