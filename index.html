@@ -4696,6 +4696,7 @@ function renderAnnDetailBody(id) {
       ${tagsBlock}
       <div class="divider"></div>
       <p style="line-height:1.9;font-size:16px;margin:0;white-space:pre-wrap">${escHtml(a.body)}</p>
+      ${annImagesHtml(a)}
       ${ackBlock}
       ${isManager ? `
         <div class="divider"></div>
@@ -4716,6 +4717,27 @@ function renderAnnDetailBody(id) {
     </div>`;
   // 一覧側とは遷移先が違う(詳細を閉じてからフィルタ)ため属性名を分けている
   bindDataClick(document.getElementById('ann-detail'), 'data-ann-thread-tag', tag => goToTagThread(tag));
+  bindDataClick(document.getElementById('ann-detail'), 'data-ann-img-idx', (idx, ev, el) => {
+    if (el.closest('.ann-img-failed')) return;   // 読み込めなかった画像は開かない
+    openAnnImageViewer(a.id, Number(idx));
+  });
+}
+
+// 詳細画面の添付画像(v0.5)。本文の直下・必読確認ボタンの上に縦に並べる(図を見ずに確認だけ押す流れを
+// 作りにくくするため)。width/height で読み込み前から枠の高さを確保し、画面のガタつきを防ぐ
+function annImagesHtml(a) {
+  const images = Array.isArray(a.images) ? a.images : [];
+  if (images.length === 0) return '';
+  return images.map((img, i) => {
+    const w = Math.round(Number(img.w)) || '', h = Math.round(Number(img.h)) || '';
+    return `
+      <div class="ann-img-wrap">
+        <button type="button" class="ann-img-btn" data-ann-img-idx="${i}" aria-label="画像${i + 1}を拡大して表示">
+          <img class="ann-img" src="${escHtml(img.url)}" ${w ? `width="${w}"` : ''} ${h ? `height="${h}"` : ''}
+            loading="lazy" alt="添付画像${i + 1}" onerror="this.closest('.ann-img-wrap').classList.add('ann-img-failed')">
+        </button>
+      </div>`;
+  }).join('');
 }
 
 // 詳細画面で開いているお知らせのreadsサブコレクションを購読する
