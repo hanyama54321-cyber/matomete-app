@@ -2762,14 +2762,8 @@ function attachTeamsListener() {
 
 const getTeamLabel = id => (teams.find(t => t.id === id) || {}).label || id || '—';
 
-// カテゴリ（タグ）定義
-const annCategories = [
-  { id:'safety',  label:'安全',  color:'var(--danger)' },
-  { id:'work',    label:'業務',  color:'var(--primary)' },
-  { id:'hr',      label:'人事',  color:'var(--safe)' },
-  { id:'system',  label:'設備',  color:'var(--purple)' },
-  { id:'other',   label:'その他', color:'var(--text-sub)' },
-];
+// 周知のカテゴリ(annCategories / getCat)は v0.5.2 で画面から廃止し、定義も削除した。
+// 既存のお知らせの category フィールドはデータとして残るが、どこからも参照しない(定型タグ ANN_PRESET_TAGS へ移行)
 
 
 /* ===== 周知(お知らせ) =====
@@ -2920,7 +2914,6 @@ const st = {
 /* ===== ヘルパー ===== */
 const diffColor = { '低':'var(--safe)', '中':'var(--primary)', '高':'var(--danger)' };
 
-const getCat   = id => annCategories.find(c => c.id === id) || annCategories[4];
 const getTeam  = id => teams.find(t => t.id === id) || teams[0];
 
 // 対象グループに属するドライバーを取得（現在の呼び出し元はチャットのgetChannelMembers()のみ）
@@ -4354,7 +4347,6 @@ function matchesSearch(a, q) {
   const lower = q.toLowerCase();
   const haystacks = [
     a.title, a.body, a.from,
-    getCat(a.category).label,
     (a.tags || []).join(' '),
   ];
   return haystacks.some(h => (h || '').toLowerCase().includes(lower));
@@ -4386,7 +4378,6 @@ function highlight(text, q) {
 // お知らせのHTML生成（1件分）
 function renderAnnCard(a, opts={}) {
   const isManager = st.role === 'manager';
-  const cat = getCat(a.category);
   const team = getTeam(a.target);
   const reach = calcReach(a);
   const isScheduled = a.status === 'scheduled';
@@ -4419,7 +4410,6 @@ function renderAnnCard(a, opts={}) {
             ${a.mustRead ? '<span class="must-read-badge">✋ 必読</span>' : ''}
             ${isScheduled ? `<span class="scheduled-badge">⏰ ${fmtSchedDate(a.scheduledAt)} 配信予定</span>` : ''}
             ${!isRead && !isManager && !isScheduled && !mustPending ? '<span class="ann-unread-dot" aria-label="未読"></span>' : ''}
-            ${mkTag(cat.label, cat.color)}
             ${isManager && a.priority==='high' ? mkTag('🔴 重要','var(--danger)') : ''}
             ${isManager ? mkTag('対象: '+escHtml(team.label), 'var(--text-sub)') : ''}
             <span style="font-size:12px;color:var(--text-muted)">${escHtml(a.from)}</span>
@@ -4694,7 +4684,6 @@ function renderAnnDetailBody(id) {
   const a = findAnn(id);
   if (!a) return;
   const isManager = st.role === 'manager';
-  const cat = getCat(a.category);
   const team = getTeam(a.target);
   const dl = deadlineInfo(a.readDeadline);
 
@@ -4755,7 +4744,7 @@ function renderAnnDetailBody(id) {
       </div>
       ${related.slice(0,5).map(r => `
         <div class="related-item" onclick="showAnn('${r.id}')">
-          <div style="font-size:18px">${getCat(r.category).label === '安全' ? '🛡️' : getCat(r.category).label === '業務' ? '📋' : getCat(r.category).label === '人事' ? '👥' : '📌'}</div>
+          <div style="font-size:18px">📌</div>
           <div class="related-item-content">
             <div class="related-item-title">${escHtml(r.title)}</div>
             <div class="related-item-meta">${escHtml(r.from)} · ${annTimeLabel(r)}</div>
@@ -4771,7 +4760,6 @@ function renderAnnDetailBody(id) {
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
         ${a.pinned?mkTag('📌 固定','var(--primary)'):''}
         ${a.mustRead ? '<span class="must-read-badge">✋ 必読</span>' : ''}
-        ${mkTag(cat.label, cat.color)}
         ${a.priority==='high'?mkTag('🔴 重要','var(--danger)'):''}
         ${isManager ? mkTag('対象: '+escHtml(team.label), 'var(--text-sub)') : ''}
       </div>
@@ -6304,7 +6292,6 @@ async function exportAnnCsv(id) {
   const status = await fetchAnnReadStatus(a.id);
   const { reach, ackedCount } = status;
 
-  const cat = getCat(a.category);
   const prio = priorityMap[a.priority];
   const team = getTeam(a.target);
   const targets = reach.targets;
@@ -6314,7 +6301,6 @@ async function exportAnnCsv(id) {
   // ヘッダ部（メタ情報）
   const meta = [
     ['お知らせタイトル', a.title],
-    ['カテゴリ',         cat.label],
     ['優先度',           prio.label],
     ['必読',             a.mustRead ? 'はい' : 'いいえ'],
     ['既読期限',         a.readDeadline || '—'],
