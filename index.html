@@ -1972,6 +1972,70 @@ header {
 .ann-img-failed .ann-img { display: none; }
 .ann-img-failed .ann-img-btn { cursor: default; }
 .ann-img-failed .ann-img-btn::after { content: '画像を読み込めませんでした'; display: block; padding: 22px 12px; border: 1px dashed var(--border); border-radius: 10px; color: var(--text-muted); font-size: 13px; text-align: center; }
+/* ===== v0.5.1 周知まとめ(印刷) =====
+   見本 docs/samples/周知まとめ_サンプル.html の CSS を pr- 接頭辞で移したもの。
+   画面表示時の #app / #bottom-nav / body / html には触れない(@media print の中だけで隠す) */
+/* 入口ボタン: #ann-new-btn(管理者だけに出る)と表示・非表示を連動させる */
+.pr-entry-btn { display: block; width: 100%; margin: -4px 0 12px; padding: 10px; border-radius: 10px; border: 1.5px solid var(--border); background: var(--surface); color: var(--navy); font-size: 14px; font-weight: 700; cursor: pointer; }
+#ann-new-btn.hidden + .pr-entry-btn { display: none; }
+/* 選択画面 */
+.pr-pick-note { font-size: 12px; color: var(--text-sub); margin-bottom: 10px; line-height: 1.6; }
+.pr-pick-row { display: flex; align-items: flex-start; gap: 8px; padding: 10px 2px; border-bottom: 1px solid var(--border); font-size: 14px; color: var(--navy); cursor: pointer; }
+.pr-pick-row input { flex-shrink: 0; width: 20px; height: 20px; margin-top: 1px; }
+.pr-pick-row.disabled { opacity: .45; cursor: default; }
+.pr-pick-date { flex-shrink: 0; width: 42px; color: var(--text-sub); font-size: 13px; padding-top: 1px; }
+.pr-pick-must { flex-shrink: 0; border: 1.2px solid #D93A3F; color: #D93A3F; font-weight: 700; font-size: 11px; padding: 0 5px; border-radius: 4px; margin-top: 1px; }
+.pr-pick-title { flex: 1; min-width: 0; overflow-wrap: anywhere; line-height: 1.5; }
+.pr-pick-limit { font-size: 12px; color: var(--danger); font-weight: 700; margin-top: 10px; }
+.pr-pick-count { flex: 1; font-size: 13px; color: var(--text-sub); align-self: center; }
+/* 印刷用の要素。画面では出さない(1枚に収まるかを測る間だけ画面外で描く) */
+#print-root { display: none; }
+#print-root.pr-measuring { display: block; position: fixed; left: -10000px; top: 0; visibility: hidden; pointer-events: none; }
+@page { size: A4 portrait; margin: 0; }
+@media print {
+  html, body { width: 210mm; height: 297mm; overflow: hidden; background: #fff !important; margin: 0; padding: 0; }
+  body > *:not(#print-root) { display: none !important; }
+  #print-root { display: block !important; position: static; visibility: visible; }
+}
+.pr-sheet { --pr-ttl: 12.5pt; --pr-body: 10.5pt; --pr-rate: 18pt; --pr-pad: 2.2mm; --pr-lines: 5;
+  width: 210mm; height: 297mm; background: #fff; padding: 12mm 12mm 10mm; display: flex; flex-direction: column; overflow: hidden;
+  font-family: "Noto Sans CJK JP", "Hiragino Sans", "Yu Gothic", sans-serif; color: #1C2940;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact; break-after: avoid; page-break-after: avoid; }
+.pr-head { display: grid; grid-template-columns: 1fr auto 1fr; align-items: end; border-bottom: 2.5pt solid #13294B; padding-bottom: 3mm; }
+.pr-h-left { font-size: 13pt; font-weight: 700; color: #13294B; letter-spacing: .06em; }
+.pr-h-center { font-size: 24pt; font-weight: 700; color: #13294B; line-height: 1.1; text-align: center; letter-spacing: .02em; white-space: nowrap; }
+.pr-h-center small { font-size: 13pt; }
+.pr-h-center .pr-time { margin-left: 4mm; }
+.pr-h-right { text-align: right; font-size: 9.5pt; color: #5F6E85; line-height: 1.6; }
+.pr-h-right b { color: #13294B; font-size: 11pt; }
+.pr-legend { display: flex; gap: 6mm; font-size: 9.5pt; color: #5F6E85; margin: 2.5mm 0 3mm; }
+.pr-legend span { white-space: nowrap; }
+.pr-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.pr-table th { background: #13294B; color: #fff; font-size: 9pt; font-weight: 700; padding: 1.8mm 1.5mm; text-align: center; }
+.pr-table td { border-bottom: .8pt solid #9AA7BA; padding: var(--pr-pad) 2mm; vertical-align: top; font-size: var(--pr-body); }
+.pr-table tr.pr-must td { background: #FFF6F6; }
+.pr-c-no { width: 8mm; text-align: center; font-weight: 700; color: #13294B; font-size: 12pt; }
+.pr-c-date { width: 16mm; text-align: center; font-size: 11pt; color: #5F6E85; }
+.pr-c-rate { width: 22mm; text-align: center; }
+.pr-table td.pr-c-no { font-size: 12pt; }
+.pr-table td.pr-c-date { font-size: 11pt; }
+.pr-tag-must { display: inline-block; border: 1.2pt solid #D93A3F; color: #D93A3F; font-weight: 700; font-size: 8.5pt; padding: .2mm 1.6mm; border-radius: 1mm; margin-right: 1.5mm; vertical-align: 2px; }
+.pr-ttl { font-weight: 700; font-size: var(--pr-ttl); color: #13294B; line-height: 1.45; overflow-wrap: anywhere; }
+.pr-body { margin-top: 1mm; font-size: var(--pr-body); line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-line-clamp: var(--pr-lines); line-clamp: var(--pr-lines); -webkit-box-orient: vertical; overflow: hidden; }
+.pr-foot { margin-top: 1mm; font-size: 9pt; color: #5F6E85; display: flex; gap: 4mm; flex-wrap: wrap; }
+.pr-foot .pr-img { border: .8pt solid #9AA7BA; border-radius: 1mm; padding: 0 1.4mm; }
+.pr-rate { font-size: var(--pr-rate); font-weight: 700; color: #13294B; line-height: 1.1; }
+.pr-rate small { display: block; font-size: 7.5pt; font-weight: 500; color: #5F6E85; margin-top: .8mm; }
+.pr-rate.low { color: #D93A3F; }
+.pr-rate.low::after { content: "要伝達"; display: block; font-size: 7.5pt; font-weight: 700; margin-top: .6mm; }
+.pr-bottom { margin-top: auto; display: flex; gap: 5mm; align-items: stretch; padding-top: 3mm; }
+.pr-memo-box { flex: 1; height: 22mm; border: .8pt solid #9AA7BA; border-radius: 2mm; padding: 2mm 3mm; font-size: 9pt; color: #5F6E85; }
+.pr-memo-box b { color: #13294B; }
+.pr-qr { display: flex; align-items: center; gap: 3mm; text-align: left; font-size: 8.5pt; color: #5F6E85; line-height: 1.5; }
+.pr-qr-svg { width: 22mm; height: 22mm; display: block; }
+.pr-qr b { color: #13294B; }
+.pr-sig { margin-top: 2mm; font-size: 8pt; color: #9AA7BA; text-align: right; }
 /* ===== v0.5.1 管理者の確認済 ===== */
 .ann-confirm { margin-top: 12px; }
 .ann-confirm-btn { width: 100%; min-height: 44px; border-radius: 10px; border: 1.5px solid var(--border); background: var(--surface); color: var(--navy); font-size: 14px; font-weight: 700; cursor: pointer; }
@@ -2259,6 +2323,7 @@ header {
         <span style="font-size:18px;line-height:1">＋</span>
         <span>新しいお知らせを作成</span>
       </button>
+      <button id="ann-print-btn" class="pr-entry-btn" onclick="openAnnPrintPicker()">🖨 周知まとめ</button>
       <div id="search-bar" class="search-bar hidden">
         <span class="search-icon">🔍</span>
         <input type="search" id="search-input" class="search-input"
@@ -2618,6 +2683,9 @@ header {
   <div id="modal-root" class="hidden"></div>
 
 </div><!-- /#app -->
+
+<!-- 周知まとめの印刷用(v0.5.1)。#app の外(body の直下)に置き、印刷時だけ表示する -->
+<div id="print-root" aria-hidden="true"></div>
 
 <!-- 診断オーバーレイ(隠し機能)。#appの外側に置き、計測対象の
      レイアウトに影響を与えないようにしている -->
@@ -4734,6 +4802,195 @@ function renderAnnDetailBody(id) {
     openAnnImageViewer(a.id, Number(idx));
   });
 }
+
+/* ===== 周知まとめ(v0.5.1) =====
+   アプリを使えない乗務員に口頭・掲示で伝えるため、管理者が選んだお知らせ(最大6件)を A4 縦1枚に印刷する。
+   MVP: 選択の保存・確認済の名前・伝達チェック欄・朝礼/昼礼の区別は作らない(依頼者と協議して見送り)。
+   既読率は到達率と同じ値(fetchAnnReadStatus → buildAnnReadStatus。計算方法は変えない)。
+   見た目は docs/samples/周知まとめ_サンプル.html に合わせる */
+const PR_MAX = 6;             // 1枚に収めるための上限
+const PR_DAYS = 30;           // 選択画面に出す範囲(公開から何日以内)
+const PR_LOW_PCT = 50;        // これ未満は赤字+「要伝達」
+// 1枚に収まらないときに順に試す文字の大きさ(標準 → 下限)。下限でも収まらなければ本文を4行で打ち切る
+const PR_LEVELS = [
+  { ttl: 12.5, body: 10.5, rate: 18, pad: 2.2 },
+  { ttl: 12,   body: 10,   rate: 17, pad: 2.0 },
+  { ttl: 11.5, body: 9.5,  rate: 16, pad: 1.8 },
+  { ttl: 11,   body: 9.25, rate: 15, pad: 1.6 },
+  { ttl: 10.5, body: 9,    rate: 14, pad: 1.4 },
+];
+// 本番URL(https://hanyama54321-cyber.github.io/matomete-app/)のQRコード。誤り訂正レベルM・33×33。
+// qrcode-generator 1.4.4(cdnjs)で開発時に生成して埋め込んだもの(実行時にライブラリは読まない)。
+// 見本の QR と同じ並びであることを確認済み。URL を変えたら作り直すこと
+const PR_QR_SVG = '<svg class="pr-qr-svg" viewBox="0 0 35 35" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges" role="img" aria-label="アプリのQRコード"><path fill="#000" d="M1,1h1v1h-1zM2,1h1v1h-1zM3,1h1v1h-1zM4,1h1v1h-1zM5,1h1v1h-1zM6,1h1v1h-1zM7,1h1v1h-1zM9,1h1v1h-1zM10,1h1v1h-1zM11,1h1v1h-1zM14,1h1v1h-1zM15,1h1v1h-1zM17,1h1v1h-1zM18,1h1v1h-1zM19,1h1v1h-1zM20,1h1v1h-1zM21,1h1v1h-1zM22,1h1v1h-1zM24,1h1v1h-1zM27,1h1v1h-1zM28,1h1v1h-1zM29,1h1v1h-1zM30,1h1v1h-1zM31,1h1v1h-1zM32,1h1v1h-1zM33,1h1v1h-1zM1,2h1v1h-1zM7,2h1v1h-1zM9,2h1v1h-1zM13,2h1v1h-1zM14,2h1v1h-1zM17,2h1v1h-1zM19,2h1v1h-1zM23,2h1v1h-1zM24,2h1v1h-1zM25,2h1v1h-1zM27,2h1v1h-1zM33,2h1v1h-1zM1,3h1v1h-1zM3,3h1v1h-1zM4,3h1v1h-1zM5,3h1v1h-1zM7,3h1v1h-1zM10,3h1v1h-1zM11,3h1v1h-1zM12,3h1v1h-1zM13,3h1v1h-1zM17,3h1v1h-1zM18,3h1v1h-1zM20,3h1v1h-1zM21,3h1v1h-1zM27,3h1v1h-1zM29,3h1v1h-1zM30,3h1v1h-1zM31,3h1v1h-1zM33,3h1v1h-1zM1,4h1v1h-1zM3,4h1v1h-1zM4,4h1v1h-1zM5,4h1v1h-1zM7,4h1v1h-1zM9,4h1v1h-1zM11,4h1v1h-1zM12,4h1v1h-1zM15,4h1v1h-1zM17,4h1v1h-1zM20,4h1v1h-1zM21,4h1v1h-1zM25,4h1v1h-1zM27,4h1v1h-1zM29,4h1v1h-1zM30,4h1v1h-1zM31,4h1v1h-1zM33,4h1v1h-1zM1,5h1v1h-1zM3,5h1v1h-1zM4,5h1v1h-1zM5,5h1v1h-1zM7,5h1v1h-1zM10,5h1v1h-1zM11,5h1v1h-1zM12,5h1v1h-1zM15,5h1v1h-1zM18,5h1v1h-1zM21,5h1v1h-1zM22,5h1v1h-1zM25,5h1v1h-1zM27,5h1v1h-1zM29,5h1v1h-1zM30,5h1v1h-1zM31,5h1v1h-1zM33,5h1v1h-1zM1,6h1v1h-1zM7,6h1v1h-1zM10,6h1v1h-1zM13,6h1v1h-1zM14,6h1v1h-1zM15,6h1v1h-1zM18,6h1v1h-1zM20,6h1v1h-1zM21,6h1v1h-1zM27,6h1v1h-1zM33,6h1v1h-1zM1,7h1v1h-1zM2,7h1v1h-1zM3,7h1v1h-1zM4,7h1v1h-1zM5,7h1v1h-1zM6,7h1v1h-1zM7,7h1v1h-1zM9,7h1v1h-1zM11,7h1v1h-1zM13,7h1v1h-1zM15,7h1v1h-1zM17,7h1v1h-1zM19,7h1v1h-1zM21,7h1v1h-1zM23,7h1v1h-1zM25,7h1v1h-1zM27,7h1v1h-1zM28,7h1v1h-1zM29,7h1v1h-1zM30,7h1v1h-1zM31,7h1v1h-1zM32,7h1v1h-1zM33,7h1v1h-1zM9,8h1v1h-1zM10,8h1v1h-1zM12,8h1v1h-1zM15,8h1v1h-1zM18,8h1v1h-1zM19,8h1v1h-1zM21,8h1v1h-1zM23,8h1v1h-1zM24,8h1v1h-1zM25,8h1v1h-1zM1,9h1v1h-1zM3,9h1v1h-1zM4,9h1v1h-1zM6,9h1v1h-1zM7,9h1v1h-1zM8,9h1v1h-1zM15,9h1v1h-1zM17,9h1v1h-1zM18,9h1v1h-1zM19,9h1v1h-1zM20,9h1v1h-1zM22,9h1v1h-1zM27,9h1v1h-1zM30,9h1v1h-1zM32,9h1v1h-1zM33,9h1v1h-1zM3,10h1v1h-1zM9,10h1v1h-1zM11,10h1v1h-1zM13,10h1v1h-1zM17,10h1v1h-1zM20,10h1v1h-1zM24,10h1v1h-1zM27,10h1v1h-1zM28,10h1v1h-1zM30,10h1v1h-1zM31,10h1v1h-1zM33,10h1v1h-1zM4,11h1v1h-1zM5,11h1v1h-1zM7,11h1v1h-1zM8,11h1v1h-1zM15,11h1v1h-1zM17,11h1v1h-1zM18,11h1v1h-1zM23,11h1v1h-1zM24,11h1v1h-1zM25,11h1v1h-1zM27,11h1v1h-1zM28,11h1v1h-1zM29,11h1v1h-1zM30,11h1v1h-1zM33,11h1v1h-1zM1,12h1v1h-1zM10,12h1v1h-1zM11,12h1v1h-1zM13,12h1v1h-1zM14,12h1v1h-1zM15,12h1v1h-1zM16,12h1v1h-1zM19,12h1v1h-1zM20,12h1v1h-1zM28,12h1v1h-1zM30,12h1v1h-1zM32,12h1v1h-1zM33,12h1v1h-1zM2,13h1v1h-1zM3,13h1v1h-1zM5,13h1v1h-1zM6,13h1v1h-1zM7,13h1v1h-1zM8,13h1v1h-1zM11,13h1v1h-1zM12,13h1v1h-1zM13,13h1v1h-1zM16,13h1v1h-1zM19,13h1v1h-1zM23,13h1v1h-1zM24,13h1v1h-1zM26,13h1v1h-1zM28,13h1v1h-1zM29,13h1v1h-1zM30,13h1v1h-1zM2,14h1v1h-1zM4,14h1v1h-1zM8,14h1v1h-1zM9,14h1v1h-1zM12,14h1v1h-1zM17,14h1v1h-1zM19,14h1v1h-1zM25,14h1v1h-1zM26,14h1v1h-1zM28,14h1v1h-1zM31,14h1v1h-1zM32,14h1v1h-1zM3,15h1v1h-1zM4,15h1v1h-1zM5,15h1v1h-1zM6,15h1v1h-1zM7,15h1v1h-1zM9,15h1v1h-1zM10,15h1v1h-1zM11,15h1v1h-1zM12,15h1v1h-1zM14,15h1v1h-1zM16,15h1v1h-1zM17,15h1v1h-1zM23,15h1v1h-1zM25,15h1v1h-1zM27,15h1v1h-1zM28,15h1v1h-1zM29,15h1v1h-1zM31,15h1v1h-1zM1,16h1v1h-1zM2,16h1v1h-1zM6,16h1v1h-1zM8,16h1v1h-1zM10,16h1v1h-1zM11,16h1v1h-1zM14,16h1v1h-1zM17,16h1v1h-1zM20,16h1v1h-1zM21,16h1v1h-1zM22,16h1v1h-1zM23,16h1v1h-1zM26,16h1v1h-1zM27,16h1v1h-1zM29,16h1v1h-1zM30,16h1v1h-1zM31,16h1v1h-1zM1,17h1v1h-1zM2,17h1v1h-1zM4,17h1v1h-1zM7,17h1v1h-1zM9,17h1v1h-1zM10,17h1v1h-1zM11,17h1v1h-1zM12,17h1v1h-1zM16,17h1v1h-1zM19,17h1v1h-1zM20,17h1v1h-1zM22,17h1v1h-1zM24,17h1v1h-1zM25,17h1v1h-1zM26,17h1v1h-1zM27,17h1v1h-1zM29,17h1v1h-1zM30,17h1v1h-1zM31,17h1v1h-1zM1,18h1v1h-1zM3,18h1v1h-1zM4,18h1v1h-1zM5,18h1v1h-1zM6,18h1v1h-1zM12,18h1v1h-1zM13,18h1v1h-1zM14,18h1v1h-1zM16,18h1v1h-1zM18,18h1v1h-1zM24,18h1v1h-1zM25,18h1v1h-1zM26,18h1v1h-1zM27,18h1v1h-1zM29,18h1v1h-1zM30,18h1v1h-1zM32,18h1v1h-1zM33,18h1v1h-1zM1,19h1v1h-1zM2,19h1v1h-1zM3,19h1v1h-1zM6,19h1v1h-1zM7,19h1v1h-1zM8,19h1v1h-1zM9,19h1v1h-1zM10,19h1v1h-1zM13,19h1v1h-1zM14,19h1v1h-1zM15,19h1v1h-1zM16,19h1v1h-1zM18,19h1v1h-1zM22,19h1v1h-1zM25,19h1v1h-1zM26,19h1v1h-1zM28,19h1v1h-1zM29,19h1v1h-1zM31,19h1v1h-1zM32,19h1v1h-1zM1,20h1v1h-1zM9,20h1v1h-1zM10,20h1v1h-1zM15,20h1v1h-1zM16,20h1v1h-1zM17,20h1v1h-1zM20,20h1v1h-1zM21,20h1v1h-1zM23,20h1v1h-1zM25,20h1v1h-1zM27,20h1v1h-1zM29,20h1v1h-1zM32,20h1v1h-1zM33,20h1v1h-1zM1,21h1v1h-1zM6,21h1v1h-1zM7,21h1v1h-1zM11,21h1v1h-1zM12,21h1v1h-1zM13,21h1v1h-1zM15,21h1v1h-1zM16,21h1v1h-1zM19,21h1v1h-1zM20,21h1v1h-1zM22,21h1v1h-1zM24,21h1v1h-1zM30,21h1v1h-1zM31,21h1v1h-1zM1,22h1v1h-1zM2,22h1v1h-1zM3,22h1v1h-1zM5,22h1v1h-1zM8,22h1v1h-1zM9,22h1v1h-1zM11,22h1v1h-1zM14,22h1v1h-1zM15,22h1v1h-1zM16,22h1v1h-1zM19,22h1v1h-1zM22,22h1v1h-1zM23,22h1v1h-1zM24,22h1v1h-1zM27,22h1v1h-1zM33,22h1v1h-1zM3,23h1v1h-1zM4,23h1v1h-1zM7,23h1v1h-1zM8,23h1v1h-1zM12,23h1v1h-1zM13,23h1v1h-1zM17,23h1v1h-1zM23,23h1v1h-1zM24,23h1v1h-1zM25,23h1v1h-1zM28,23h1v1h-1zM29,23h1v1h-1zM32,23h1v1h-1zM33,23h1v1h-1zM2,24h1v1h-1zM3,24h1v1h-1zM5,24h1v1h-1zM6,24h1v1h-1zM9,24h1v1h-1zM15,24h1v1h-1zM17,24h1v1h-1zM21,24h1v1h-1zM25,24h1v1h-1zM26,24h1v1h-1zM28,24h1v1h-1zM30,24h1v1h-1zM32,24h1v1h-1zM33,24h1v1h-1zM1,25h1v1h-1zM6,25h1v1h-1zM7,25h1v1h-1zM8,25h1v1h-1zM10,25h1v1h-1zM14,25h1v1h-1zM15,25h1v1h-1zM16,25h1v1h-1zM18,25h1v1h-1zM20,25h1v1h-1zM21,25h1v1h-1zM24,25h1v1h-1zM25,25h1v1h-1zM26,25h1v1h-1zM27,25h1v1h-1zM28,25h1v1h-1zM29,25h1v1h-1zM9,26h1v1h-1zM10,26h1v1h-1zM15,26h1v1h-1zM16,26h1v1h-1zM18,26h1v1h-1zM20,26h1v1h-1zM21,26h1v1h-1zM23,26h1v1h-1zM24,26h1v1h-1zM25,26h1v1h-1zM29,26h1v1h-1zM30,26h1v1h-1zM32,26h1v1h-1zM1,27h1v1h-1zM2,27h1v1h-1zM3,27h1v1h-1zM4,27h1v1h-1zM5,27h1v1h-1zM6,27h1v1h-1zM7,27h1v1h-1zM9,27h1v1h-1zM10,27h1v1h-1zM11,27h1v1h-1zM14,27h1v1h-1zM15,27h1v1h-1zM17,27h1v1h-1zM20,27h1v1h-1zM21,27h1v1h-1zM23,27h1v1h-1zM24,27h1v1h-1zM25,27h1v1h-1zM27,27h1v1h-1zM29,27h1v1h-1zM1,28h1v1h-1zM7,28h1v1h-1zM9,28h1v1h-1zM11,28h1v1h-1zM15,28h1v1h-1zM20,28h1v1h-1zM22,28h1v1h-1zM24,28h1v1h-1zM25,28h1v1h-1zM29,28h1v1h-1zM30,28h1v1h-1zM31,28h1v1h-1zM1,29h1v1h-1zM3,29h1v1h-1zM4,29h1v1h-1zM5,29h1v1h-1zM7,29h1v1h-1zM10,29h1v1h-1zM18,29h1v1h-1zM21,29h1v1h-1zM22,29h1v1h-1zM23,29h1v1h-1zM24,29h1v1h-1zM25,29h1v1h-1zM26,29h1v1h-1zM27,29h1v1h-1zM28,29h1v1h-1zM29,29h1v1h-1zM31,29h1v1h-1zM1,30h1v1h-1zM3,30h1v1h-1zM4,30h1v1h-1zM5,30h1v1h-1zM7,30h1v1h-1zM9,30h1v1h-1zM10,30h1v1h-1zM11,30h1v1h-1zM12,30h1v1h-1zM13,30h1v1h-1zM14,30h1v1h-1zM19,30h1v1h-1zM24,30h1v1h-1zM28,30h1v1h-1zM30,30h1v1h-1zM31,30h1v1h-1zM33,30h1v1h-1zM1,31h1v1h-1zM3,31h1v1h-1zM4,31h1v1h-1zM5,31h1v1h-1zM7,31h1v1h-1zM9,31h1v1h-1zM10,31h1v1h-1zM11,31h1v1h-1zM12,31h1v1h-1zM14,31h1v1h-1zM15,31h1v1h-1zM22,31h1v1h-1zM23,31h1v1h-1zM25,31h1v1h-1zM27,31h1v1h-1zM28,31h1v1h-1zM30,31h1v1h-1zM1,32h1v1h-1zM7,32h1v1h-1zM10,32h1v1h-1zM12,32h1v1h-1zM13,32h1v1h-1zM15,32h1v1h-1zM16,32h1v1h-1zM17,32h1v1h-1zM18,32h1v1h-1zM19,32h1v1h-1zM21,32h1v1h-1zM24,32h1v1h-1zM25,32h1v1h-1zM26,32h1v1h-1zM28,32h1v1h-1zM29,32h1v1h-1zM30,32h1v1h-1zM33,32h1v1h-1zM1,33h1v1h-1zM2,33h1v1h-1zM3,33h1v1h-1zM4,33h1v1h-1zM5,33h1v1h-1zM6,33h1v1h-1zM7,33h1v1h-1zM9,33h1v1h-1zM11,33h1v1h-1zM13,33h1v1h-1zM14,33h1v1h-1zM15,33h1v1h-1zM16,33h1v1h-1zM18,33h1v1h-1zM19,33h1v1h-1zM20,33h1v1h-1zM21,33h1v1h-1zM22,33h1v1h-1zM23,33h1v1h-1zM24,33h1v1h-1zM27,33h1v1h-1zM29,33h1v1h-1zM31,33h1v1h-1z"/></svg>';
+let prSelected = new Set();
+
+// 掲示日(公開日)。予約から配信したものは publishedAt、古いデータは createdAt
+function annPrintDate(a) {
+  return toDateOrNull(a.publishedAt) || toDateOrNull(a.createdAt);
+}
+
+function annPrintCandidates() {
+  const since = Date.now() - PR_DAYS * 24 * 60 * 60 * 1000;
+  return announcements
+    .filter(a => a.status === 'published')
+    .map(a => ({ a, d: annPrintDate(a) }))
+    .filter(x => x.d && x.d.getTime() >= since)
+    .sort((x, y) => y.d - x.d);
+}
+
+function openAnnPrintPicker() {
+  if (st.role !== 'manager') return;
+  prSelected = new Set();   // 選択は保存しない(開くたびに何も選ばれていない状態から)
+  const items = annPrintCandidates();
+  openModal(`
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title">🖨 周知まとめ</div>
+        <button class="modal-close" onclick="closeModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="pr-pick-note">紙で伝えるお知らせを選んでください。A4 1枚に印刷します（直近${PR_DAYS}日に公開されたもの・最大${PR_MAX}件）。</p>
+        ${items.length === 0 ? '<p class="pr-pick-note">直近30日に公開されたお知らせはありません</p>' : items.map(({ a, d }) => `
+          <label class="pr-pick-row">
+            <input type="checkbox" data-pr-pick="${escHtml(a.id)}">
+            <span class="pr-pick-date">${d.getMonth() + 1}/${d.getDate()}</span>
+            ${a.mustRead ? '<span class="pr-pick-must">✋必読</span>' : ''}
+            <span class="pr-pick-title">${escHtml(a.title)}</span>
+          </label>`).join('')}
+        <div id="pr-pick-limit" class="pr-pick-limit hidden">1枚に収めるため${PR_MAX}件までです</div>
+      </div>
+      <div class="modal-footer">
+        <span id="pr-pick-count" class="pr-pick-count">0件選択中</span>
+        <button id="pr-print-btn" class="btn btn-primary" style="flex:0 0 auto" disabled onclick="printAnnSummary()">🖨 印刷する</button>
+      </div>
+    </div>`);
+  document.querySelectorAll('#modal-root [data-pr-pick]').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const id = cb.getAttribute('data-pr-pick');
+      if (cb.checked) prSelected.add(id); else prSelected.delete(id);
+      updateAnnPrintPicker();
+    });
+  });
+  updateAnnPrintPicker();
+}
+
+function updateAnnPrintPicker() {
+  const full = prSelected.size >= PR_MAX;
+  document.querySelectorAll('#modal-root [data-pr-pick]').forEach(cb => {
+    cb.disabled = full && !cb.checked;
+    cb.closest('.pr-pick-row').classList.toggle('disabled', cb.disabled);
+  });
+  const count = document.getElementById('pr-pick-count');
+  if (count) count.textContent = `${prSelected.size}件選択中`;
+  const limit = document.getElementById('pr-pick-limit');
+  if (limit) limit.classList.toggle('hidden', !full);
+  const btn = document.getElementById('pr-print-btn');
+  if (btn) { btn.disabled = prSelected.size === 0; btn.style.opacity = btn.disabled ? '.45' : '1'; }
+}
+
+// 印刷用の HTML を組み立てる(副作用なし)。rows: [{title, body, mustRead, date, hasImages, pct, readCount, total}]
+function buildAnnPrintSheet(rows, info) {
+  const pad = n => String(n).padStart(2, '0');
+  const p = info.printedAt;
+  const wd = ['日', '月', '火', '水', '木', '金', '土'][p.getDay()];
+  const body = rows.map((r, i) => {
+    const low = r.pct < PR_LOW_PCT;
+    return `
+      <tr${r.mustRead ? ' class="pr-must"' : ''}>
+        <td class="pr-c-no">${i + 1}</td>
+        <td class="pr-c-date">${r.date ? `${r.date.getMonth() + 1}/${r.date.getDate()}` : '—'}</td>
+        <td>
+          <div class="pr-ttl">${r.mustRead ? '<span class="pr-tag-must">✋必読</span>' : ''}${escHtml(r.title)}</div>
+          <div class="pr-body">${escHtml(r.body)}</div>
+          ${r.hasImages ? '<div class="pr-foot"><span class="pr-img">🖼 画像あり</span></div>' : ''}
+        </td>
+        <td class="pr-c-rate"><div class="pr-rate${low ? ' low' : ''}">${r.pct}%<small>${r.readCount}/${r.total}名</small></div></td>
+      </tr>`;
+  }).join('');
+  return `
+    <div class="pr-sheet">
+      <div class="pr-head">
+        <div class="pr-h-left">周知まとめ</div>
+        <div class="pr-h-center">${p.getFullYear()}/${pad(p.getMonth() + 1)}/${pad(p.getDate())}<small>（${wd}）</small><span class="pr-time">${pad(p.getHours())}:${pad(p.getMinutes())}</span></div>
+        <div class="pr-h-right">選択したお知らせ <b>${rows.length}件</b><br>出力者 ${escHtml(info.by)}</div>
+      </div>
+      <div class="pr-legend"><span>✋必読 ＝ 全員に伝える</span><span>既読率が${PR_LOW_PCT}%未満は「要伝達」</span></div>
+      <table class="pr-table">
+        <thead><tr><th class="pr-c-no">No</th><th class="pr-c-date">掲示日</th><th>タイトル ／ 本文の冒頭</th><th class="pr-c-rate">アプリ<br>既読率</th></tr></thead>
+        <tbody>${body}</tbody>
+      </table>
+      <div class="pr-bottom">
+        <div class="pr-memo-box"><b>メモ</b>（伝達者・補足など）</div>
+        <div class="pr-qr">${PR_QR_SVG}<div><b>全文・画像はアプリで</b><br>安全配送まとめてアプリ</div></div>
+      </div>
+      <div class="pr-sig">安全配送まとめてアプリ ／ 周知まとめ</div>
+    </div>`;
+}
+
+// 1枚に収まるまで表の文字と行の余白を段階的に小さくする。返り値は使った段階
+// (0=標準 … 4=下限、5=下限+本文4行、6=3行、7=2行)。
+// メモ欄・QRコード・見出しの大きさは変えない
+function fitAnnPrintSheet(root) {
+  const sheet = root.querySelector('.pr-sheet');
+  if (!sheet) return -1;
+  root.classList.add('pr-measuring');
+  const fits = () => sheet.scrollHeight <= sheet.clientHeight + 1;
+  const apply = l => {
+    sheet.style.setProperty('--pr-ttl', l.ttl + 'pt');
+    sheet.style.setProperty('--pr-body', l.body + 'pt');
+    sheet.style.setProperty('--pr-rate', l.rate + 'pt');
+    sheet.style.setProperty('--pr-pad', l.pad + 'mm');
+  };
+  let level = -1;
+  for (let i = 0; i < PR_LEVELS.length; i++) {
+    apply(PR_LEVELS[i]);
+    if (fits()) { level = i; break; }
+  }
+  // 下限でも収まらない場合に限り、本文を4行で打ち切る。それでも収まらなければ(タイトルが3行以上・
+  // 🖼画像ありの行が多い等)、1枚に収めることを優先して3行・2行まで打ち切る
+  for (let lines = 4; level < 0 && lines >= 2; lines--) {
+    sheet.style.setProperty('--pr-lines', String(lines));
+    if (fits()) level = PR_LEVELS.length + (4 - lines);   // 5=4行, 6=3行, 7=2行
+  }
+  if (level < 0) level = PR_LEVELS.length + 3;   // ここまで来ることは想定していない(収まらない分は下端が切れる)
+  sheet.setAttribute('data-pr-level', String(level));
+  root.classList.remove('pr-measuring');
+  return level;
+}
+
+async function printAnnSummary() {
+  if (st.role !== 'manager' || prSelected.size === 0) return;
+  const btn = document.getElementById('pr-print-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '準備中...'; }
+  const anns = [...prSelected].map(id => findAnn(id)).filter(Boolean);
+  let statuses;
+  try {
+    statuses = await Promise.all(anns.map(a => fetchAnnReadStatus(a.id)));
+  } catch (e) {
+    console.error('既読率の取得エラー:', e);
+    showToast('⚠️ 既読率を取得できませんでした（' + (e.code || e.message) + '）');
+    if (btn) { btn.textContent = '🖨 印刷する'; updateAnnPrintPicker(); }
+    return;
+  }
+  // 必読を上、その後は掲示日の新しい順
+  const rows = anns.map((a, i) => ({
+    title: a.title, body: a.body, mustRead: !!a.mustRead, date: annPrintDate(a),
+    hasImages: Array.isArray(a.images) && a.images.length > 0,
+    pct: statuses[i].reach.pct, readCount: statuses[i].reach.readCount, total: statuses[i].reach.total,
+  })).sort((x, y) => (Number(y.mustRead) - Number(x.mustRead)) || ((y.date || 0) - (x.date || 0)));
+  closeModal();
+  const root = document.getElementById('print-root');
+  root.innerHTML = buildAnnPrintSheet(rows, { printedAt: new Date(), by: fbUser ? fbUser.name : '' });
+  fitAnnPrintSheet(root);
+  window.print();
+}
+
+// 印刷後(キャンセルを含む)に印刷用の要素を空に戻す
+window.addEventListener('afterprint', () => {
+  const root = document.getElementById('print-root');
+  if (root) root.innerHTML = '';
+});
 
 /* ===== 管理者の「確認済」(v0.5.1) =====
    管理者がお知らせを読んだことの記録(announcements/{id}/confirms/{code})。到達率(reads)とは別で、
