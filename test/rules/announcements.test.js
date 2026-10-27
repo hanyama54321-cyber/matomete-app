@@ -159,3 +159,44 @@ test('adminはread記録を削除できる', async () => {
   const db = authedContext(testEnv, 'ADM1').firestore();
   await assertSucceeds(db.collection('announcements').doc('ann_1').collection('reads').doc('D99').delete());
 });
+
+/* ===== v0.5 images(任意・最大3件) ===== */
+
+const imgEntry = (i) => ({ url: 'https://example.invalid/' + i + '.jpg', path: 'announcements/x/' + i + '.jpg', w: 1600, h: 1200 });
+
+test('adminはimagesが3件のお知らせを作成できる', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'ADM1').firestore();
+  await assertSucceeds(db.collection('announcements').doc('img3').set(newAnnouncement({ images: [imgEntry(1), imgEntry(2), imgEntry(3)] })));
+});
+
+test('adminでもimagesが4件のお知らせは作成できない', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'ADM1').firestore();
+  await assertFails(db.collection('announcements').doc('img4').set(newAnnouncement({ images: [imgEntry(1), imgEntry(2), imgEntry(3), imgEntry(4)] })));
+});
+
+test('adminでもimagesを4件に増やす更新はできない', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'ADM1').firestore();
+  await assertFails(db.collection('announcements').doc('ann_1').update({ images: [imgEntry(1), imgEntry(2), imgEntry(3), imgEntry(4)] }));
+});
+
+test('adminでもimagesが配列でないお知らせは作成できない', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'ADM1').firestore();
+  await assertFails(db.collection('announcements').doc('imgx').set(newAnnouncement({ images: 'x' })));
+});
+
+test('imagesを持たないお知らせは従来どおりadminが作成・更新できる(一括投稿ツール相当)', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'ADM1').firestore();
+  await assertSucceeds(db.collection('announcements').doc('noimg').set(newAnnouncement({})));
+  await assertSucceeds(db.collection('announcements').doc('ann_1').update({ title: '変更', updatedAt: new Date() }));
+});
+
+test('一般ユーザーはimages付きのお知らせを作成できない', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'D12').firestore();
+  await assertFails(db.collection('announcements').doc('img1').set(newAnnouncement({ images: [imgEntry(1)] })));
+});

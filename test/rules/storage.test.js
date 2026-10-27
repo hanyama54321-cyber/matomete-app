@@ -95,3 +95,50 @@ test('adminはmanualsファイルを削除できる', async () => {
   const storage = authedContext(testEnv, 'ADM1').storage();
   await assertSucceeds(storage.ref('manuals/man_1/test.pdf').delete());
 });
+
+/* ===== v0.5 周知の添付画像(announcements/) ===== */
+
+const img = (n) => new Uint8Array(n || 10);
+const asJpeg = { contentType: 'image/jpeg' };
+
+test('adminはannouncementsに画像をアップロードできる', async () => {
+  await seed();
+  const storage = authedContext(testEnv, 'ADM1').storage();
+  await assertSucceeds(storage.ref('announcements/ann_1/abc123.jpg').put(img(), asJpeg));
+});
+
+test('一般ユーザーはannouncementsに画像をアップロードできない', async () => {
+  await seed();
+  const storage = authedContext(testEnv, 'D12').storage();
+  await assertFails(storage.ref('announcements/ann_1/abc123.jpg').put(img(), asJpeg));
+});
+
+test('adminでも画像以外(application/pdf)はannouncementsにアップロードできない', async () => {
+  await seed();
+  const storage = authedContext(testEnv, 'ADM1').storage();
+  await assertFails(storage.ref('announcements/ann_1/doc.pdf').put(img(), { contentType: 'application/pdf' }));
+});
+
+test('adminでも5MB以上の画像はannouncementsにアップロードできない', async () => {
+  await seed();
+  const storage = authedContext(testEnv, 'ADM1').storage();
+  await assertFails(storage.ref('announcements/ann_1/big.jpg').put(img(5 * 1024 * 1024), asJpeg));
+});
+
+test('署名済みユーザーはannouncementsの画像をreadできる・未認証はできない', async () => {
+  await seed();
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.storage().ref('announcements/ann_1/abc123.jpg').put(img(), asJpeg);
+  });
+  await assertSucceeds(authedContext(testEnv, 'D12').storage().ref('announcements/ann_1/abc123.jpg').getDownloadURL());
+  await assertFails(testEnv.unauthenticatedContext().storage().ref('announcements/ann_1/abc123.jpg').getDownloadURL());
+});
+
+test('adminはannouncementsの画像を削除できる・一般ユーザーはできない', async () => {
+  await seed();
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.storage().ref('announcements/ann_1/abc123.jpg').put(img(), asJpeg);
+  });
+  await assertFails(authedContext(testEnv, 'D12').storage().ref('announcements/ann_1/abc123.jpg').delete());
+  await assertSucceeds(authedContext(testEnv, 'ADM1').storage().ref('announcements/ann_1/abc123.jpg').delete());
+});

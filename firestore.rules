@@ -118,7 +118,12 @@ service cloud.firestore {
       // 閲覧はログイン済み全員(予約配信の非表示制御はクライアント側で行う)。
       // 作成・更新・削除はadminのみ(manuals/kytと同型、物理削除許可)
       allow read: if isSignedIn();
-      allow create, update, delete: if isAdmin();
+      // images(v0.5、任意): 画像添付。持つ場合は配列かつ3件以下。持たない書き込み
+      // (既存の投稿・編集、一括投稿ツール)は従来どおり通す
+      allow create, update: if isAdmin()
+        && (!('images' in request.resource.data)
+            || (request.resource.data.images is list && request.resource.data.images.size() <= 3));
+      allow delete: if isAdmin();
 
       // 既読・必読確認記録は本人のみ作成・更新可(ドキュメントID=乗務員コード)。
       // manuals/reads と同じ分離パターン(announcements本体はadmin限定更新のため)。
