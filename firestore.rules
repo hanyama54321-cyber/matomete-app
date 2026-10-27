@@ -125,6 +125,15 @@ service cloud.firestore {
             || (request.resource.data.images is list && request.resource.data.images.size() <= 3));
       allow delete: if isAdmin();
 
+      // 管理者の「確認済」(v0.5.1)。管理者がお知らせを読んだことの記録で、到達率(reads)とは別に持つ。
+      // 読めるのは管理者のみ。作成・更新・削除は管理者本人の分だけ(ドキュメントID=本人のコード)
+      match /confirms/{code} {
+        allow read: if isAdmin();
+        allow create, update: if isAdmin() && code == myCode()
+          && request.resource.data.code == myCode();
+        allow delete: if isAdmin() && code == myCode();
+      }
+
       // 既読・必読確認記録は本人のみ作成・更新可(ドキュメントID=乗務員コード)。
       // manuals/reads と同じ分離パターン(announcements本体はadmin限定更新のため)。
       match /reads/{code} {

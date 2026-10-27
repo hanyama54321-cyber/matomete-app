@@ -26,6 +26,9 @@ async function seed() {
     await db.collection('users').doc('ADM1').set({
       name: '管理者一号', team: null, role: 'admin', passwordChanged: true,
     });
+    await db.collection('users').doc('ADM2').set({
+      name: '管理者二号', team: null, role: 'admin', passwordChanged: true,
+    });
 
     await db.collection('announcements').doc('ann_1').set({
       title: '暑熱対策のお願い', body: '本文', category: 'safety', priority: 'high',
@@ -33,6 +36,9 @@ async function seed() {
       status: 'published', scheduledAt: null,
       authorUid: 'ADM1', authorName: '管理者一号',
       createdAt: new Date(), updatedAt: new Date(), publishedAt: new Date(),
+    });
+    await db.collection('announcements').doc('ann_1').collection('confirms').doc('ADM2').set({
+      code: 'ADM2', name: '管理者二号', confirmedAt: new Date(),
     });
     await db.collection('announcements').doc('ann_1').collection('reads').doc('D99').set({
       code: 'D99', name: '鈴木', readAt: new Date(), acked: false, ackedAt: null,
@@ -199,4 +205,43 @@ test('一般ユーザーはimages付きのお知らせを作成できない', as
   await seed();
   const db = authedContext(testEnv, 'D12').firestore();
   await assertFails(db.collection('announcements').doc('img1').set(newAnnouncement({ images: [imgEntry(1)] })));
+});
+
+/* ===== v0.5.1 管理者の確認済(confirms) ===== */
+
+const confirmsOf = (db) => db.collection('announcements').doc('ann_1').collection('confirms');
+const myConfirm = (code, name) => ({ code, name, confirmedAt: new Date() });
+
+test('adminは自分のconfirmsを作成・削除できる', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'ADM1').firestore();
+  await assertSucceeds(confirmsOf(db).doc('ADM1').set(myConfirm('ADM1', '管理者一号')));
+  await assertSucceeds(confirmsOf(db).doc('ADM1').delete());
+});
+
+test('adminは他人のコードでconfirmsを作成できない(ID・code とも)', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'ADM1').firestore();
+  await assertFails(confirmsOf(db).doc('ADM9').set(myConfirm('ADM9', '別人')));
+  await assertFails(confirmsOf(db).doc('ADM1').set(myConfirm('ADM9', '別人')));
+});
+
+test('adminは他の管理者のconfirmsを削除できない', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'ADM1').firestore();
+  await assertFails(confirmsOf(db).doc('ADM2').delete());
+});
+
+test('adminはconfirmsを一覧で読める(他の管理者の分も)', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'ADM1').firestore();
+  await assertSucceeds(confirmsOf(db).get());
+});
+
+test('一般ユーザーはconfirmsを作成も閲覧もできない', async () => {
+  await seed();
+  const db = authedContext(testEnv, 'D12').firestore();
+  await assertFails(confirmsOf(db).doc('D12').set(myConfirm('D12', '佐藤')));
+  await assertFails(confirmsOf(db).get());
+  await assertFails(confirmsOf(db).doc('ADM2').get());
 });
