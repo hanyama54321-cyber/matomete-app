@@ -4881,9 +4881,10 @@ function zoomAnnImageAt(newScale, clientX, clientY, from) {
 function onAnnImgPointerDown(e) {
   const v = annImgViewer;
   if (!v) return;
-  v.stage.setPointerCapture(e.pointerId);
+  try { v.stage.setPointerCapture(e.pointerId); } catch (_) { /* 取れなくても操作は続ける */ }
   v.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, t0: Date.now() });
   if (v.pointers.size === 2) {
+    v.multiTouch = true;   // 指がすべて離れるまで、スワイプ・タップとしては扱わない
     const [p1, p2] = [...v.pointers.values()];
     v.pinch = { dist: Math.hypot(p2.x - p1.x, p2.y - p1.y) || 1,
                 midX: (p1.x + p2.x) / 2, midY: (p1.y + p2.y) / 2,
@@ -4921,7 +4922,6 @@ function onAnnImgPointerUp(e) {
   if (!v || !v.pointers.has(e.pointerId)) return;
   const p = v.pointers.get(e.pointerId);
   v.pointers.delete(e.pointerId);
-  const wasPinch = !!v.pinch;
   if (v.pointers.size < 2) v.pinch = null;
   if (v.pointers.size === 1) {   // ピンチ後に1本指が残ったら、そこからずらしを続ける
     const [rest] = [...v.pointers.values()];
@@ -4929,7 +4929,11 @@ function onAnnImgPointerUp(e) {
     return;
   }
   v.pan = null;
-  if (wasPinch || e.type === 'pointercancel') return;
+  // 2本指を使った操作の最後の指を離したときは、その指の移動をスワイプ・タップと取り違えない
+  const wasMultiTouch = !!v.multiTouch;
+  v.multiTouch = false;
+  if (wasMultiTouch) { v.lastTap = null; return; }
+  if (e.type === 'pointercancel') return;
   const dx = e.clientX - p.x0, dy = e.clientY - p.y0, dt = Date.now() - p.t0;
   // 等倍のときの左右スワイプで前後の画像へ
   if (v.scale === 1 && Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) {
