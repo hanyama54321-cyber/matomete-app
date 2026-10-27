@@ -1972,6 +1972,12 @@ header {
 .ann-img-failed .ann-img { display: none; }
 .ann-img-failed .ann-img-btn { cursor: default; }
 .ann-img-failed .ann-img-btn::after { content: '画像を読み込めませんでした'; display: block; padding: 22px 12px; border: 1px dashed var(--border); border-radius: 10px; color: var(--text-muted); font-size: 13px; text-align: center; }
+/* ===== v0.5.1 管理者の確認済 ===== */
+.ann-confirm { margin-top: 12px; }
+.ann-confirm-btn { width: 100%; min-height: 44px; border-radius: 10px; border: 1.5px solid var(--border); background: var(--surface); color: var(--navy); font-size: 14px; font-weight: 700; cursor: pointer; }
+.ann-confirm-btn.on { background: rgba(31,157,85,.12); border-color: var(--safe); color: var(--safe); box-shadow: inset 0 2px 4px rgba(0,0,0,.08); }
+.ann-confirm-btn:disabled { opacity: .55; cursor: default; }
+.ann-confirm-list { margin-top: 8px; font-size: 12px; color: var(--text-sub); line-height: 1.7; overflow-wrap: anywhere; }
 /* 一覧の画像付きマーク */
 .ann-img-mark { font-size: 14px; margin-left: 4px; vertical-align: 1px; }
 /* 全画面表示(拡大)。ページ全体のズームは使わず、この中だけで拡大する */
@@ -4592,6 +4598,9 @@ function showAnn(id) {
 
   st.annDetailId = id;
   attachAnnReadsListener(a.id); // readsサブコレクションを購読し、変更のたびに再描画
+  // 管理者の確認済(v0.5.1)は、開いたときに1回だけ取得する(常時リスナーは張らない)
+  annConfirms = { annId: a.id, list: [], loaded: false, busy: false };
+  if (isManager) fetchAnnConfirms(a.id);
 
   document.getElementById('ann-list').classList.add('hidden');
   document.getElementById('ann-filters').classList.add('hidden');
@@ -4709,6 +4718,7 @@ function renderAnnDetailBody(id) {
             ${a.mustRead ? `<div style="font-size:11px;color:var(--text-sub);margin-top:4px">✋ 必読確認: ${ackedCount}/${reach.total}名</div>` : ''}
           </div>
         </div>
+        ${annConfirmBlockHtml(a)}
         <div style="display:flex;gap:8px;margin-top:12px">
           <button class="btn btn-primary" style="flex:1" onclick="showReach('${id}')">📊 到達率の詳細</button>
           <button class="btn btn-ghost" style="flex:1" onclick="openAnnEditor('${id}')">✏️ 編集</button>
@@ -4718,10 +4728,74 @@ function renderAnnDetailBody(id) {
     </div>`;
   // 一覧側とは遷移先が違う(詳細を閉じてからフィルタ)ため属性名を分けている
   bindDataClick(document.getElementById('ann-detail'), 'data-ann-thread-tag', tag => goToTagThread(tag));
+  bindDataClick(document.getElementById('ann-detail'), 'data-ann-confirm', () => toggleAnnConfirm(a.id));
   bindDataClick(document.getElementById('ann-detail'), 'data-ann-img-idx', (idx, ev, el) => {
     if (el.closest('.ann-img-failed')) return;   // 読み込めなかった画像は開かない
     openAnnImageViewer(a.id, Number(idx));
   });
+}
+
+/* ===== 管理者の「確認済」(v0.5.1) =====
+   管理者がお知らせを読んだことの記録(announcements/{id}/confirms/{code})。到達率(reads)とは別で、
+   通知センター・新着マーク・到達率には一切連動させない。メンテ用コード(MASTER_EXCLUDED_CODES)は
+   一覧に出さず、メンテ用コードでログイン中はボタン自体を出さない */
+let annConfirms = { annId: null, list: [], loaded: false, busy: false };
+
+async function fetchAnnConfirms(annId) {
+  let list = [], error = false;
+  try {
+    const snap = await fbDb.collection('announcements').doc(annId).collection('confirms').get();
+    list = snap.docs.map(d => ({ code: d.id, ...d.data() }));
+  } catch (e) {
+    console.error('確認済の取得エラー:', e);
+    error = true;
+  }
+  if (st.annDetailId !== annId) return;   // 取得中に別のお知らせへ移った
+  annConfirms = { annId, list, loaded: true, busy: false, error };
+  renderAnnDetailBody(annId);
+}
+
+// confirmedAt(Timestamp)を M/D にする(端末ローカル)。書き込み直後でまだ確定していなければ空
+function fmtConfirmDate(ts) {
+  if (!ts || typeof ts.toDate !== 'function') return '';
+  const d = ts.toDate();
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+}
+
+function annConfirmBlockHtml(a) {
+  if (st.role !== 'manager' || !fbUser) return '';
+  const c = annConfirms.annId === a.id ? annConfirms : { list: [], loaded: false, busy: false };
+  const isMaintenance = MASTER_EXCLUDED_CODES.includes(fbUser.code);
+  const mine = c.list.find(x => x.code === fbUser.code);
+  const ms = x => (x.confirmedAt && typeof x.confirmedAt.toMillis === 'function') ? x.confirmedAt.toMillis() : 0;
+  const shown = c.list.filter(x => !MASTER_EXCLUDED_CODES.includes(x.code)).sort((x, y) => ms(x) - ms(y));
+  let listHtml;
+  if (!c.loaded) listHtml = '読み込み中...';
+  else if (c.error) listHtml = '確認済の一覧を取得できませんでした';
+  else if (shown.length === 0) listHtml = '確認済の管理者はまだいません';
+  else listHtml = '確認済：' + shown.map(x => `${escHtml(x.name || x.code)} ${fmtConfirmDate(x.confirmedAt)}`.trim()).join('、');
+  const btn = isMaintenance ? '' : `
+    <button type="button" class="ann-confirm-btn${mine ? ' on' : ''}" data-ann-confirm="1" aria-pressed="${mine ? 'true' : 'false'}"
+      ${!c.loaded || c.busy ? 'disabled' : ''}>${mine ? `✅ 確認済（${fmtConfirmDate(mine.confirmedAt) || '…'}）` : '✅ 確認済にする'}</button>`;
+  return `<div class="ann-confirm">${btn}<div class="ann-confirm-list">${listHtml}</div></div>`;
+}
+
+// 押すたびに 確認済 ⇄ 取り消し(確認ダイアログは出さない)。書いたあとは一覧を取り直して表示する
+async function toggleAnnConfirm(annId) {
+  if (st.role !== 'manager' || !fbUser || MASTER_EXCLUDED_CODES.includes(fbUser.code)) return;
+  if (annConfirms.annId !== annId || !annConfirms.loaded || annConfirms.busy) return;
+  const mine = annConfirms.list.find(x => x.code === fbUser.code);
+  annConfirms.busy = true;
+  renderAnnDetailBody(annId);
+  const ref = fbDb.collection('announcements').doc(annId).collection('confirms').doc(fbUser.code);
+  try {
+    if (mine) await ref.delete();
+    else await ref.set({ code: fbUser.code, name: fbUser.name, confirmedAt: firebase.firestore.FieldValue.serverTimestamp() });
+  } catch (e) {
+    console.error('確認済の更新エラー:', e);
+    showToast('⚠️ 確認済の更新に失敗しました（' + (e.code || e.message) + '）');
+  }
+  await fetchAnnConfirms(annId);
 }
 
 // 詳細画面の添付画像(v0.5)。本文の直下・必読確認ボタンの上に縦に並べる(図を見ずに確認だけ押す流れを
@@ -4996,6 +5070,7 @@ function goToTagThread(tag) {
 function closeAnnDetail() {
   if (annReadsUnsub) { annReadsUnsub(); annReadsUnsub = null; }
   st.annDetailId = null;
+  annConfirms = { annId: null, list: [], loaded: false, busy: false };
   document.getElementById('ann-detail').classList.add('hidden');
   document.getElementById('ann-detail').innerHTML = '';
   document.getElementById('ann-list').classList.remove('hidden');
@@ -8650,6 +8725,7 @@ function showLoginScreen() {
   if (annReadsUnsub) { annReadsUnsub(); annReadsUnsub = null; }
   announcements = [];
   annCurrentReads = {};
+  annConfirms = { annId: null, list: [], loaded: false, busy: false };
   annAllDrivers = [];
   chatDriversFetch = null;
   chatAdmins = [];
