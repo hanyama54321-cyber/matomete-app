@@ -4740,6 +4740,215 @@ function annImagesHtml(a) {
   }).join('');
 }
 
+/* ===== 周知の画像の全画面表示(v0.5) =====
+   ページ全体のズーム(meta viewport)には頼らず、この要素の中だけで拡大する(閉じれば何も残らない)。
+   - ピンチ(2本指)で拡大縮小(1〜5倍)。拡大中は1本指でずらす
+   - ダブルタップ、または🔍ボタンで 等倍⇄2.5倍
+   - 等倍のときは左右スワイプ、または ‹ › で前後の画像へ。「1 / 3」で位置を表示
+   - ✕・Escキー・Android の戻る操作で閉じる(開くときに履歴を1つ積み、popstate で閉じる) */
+const ANN_IMG_ZOOM_MAX = 5;
+const ANN_IMG_ZOOM_STEP = 2.5;
+let annImgViewer = null;
+
+function openAnnImageViewer(annId, index) {
+  const a = findAnn(annId);
+  const images = (a && Array.isArray(a.images)) ? a.images : [];
+  if (!images[index] || annImgViewer) return;
+  const el = document.createElement('div');
+  el.className = 'img-viewer';
+  el.setAttribute('role', 'dialog');
+  el.setAttribute('aria-modal', 'true');
+  el.setAttribute('aria-label', '画像の拡大表示');
+  el.innerHTML = `
+    <div class="img-viewer-stage"><img alt="" draggable="false"></div>
+    <div class="img-viewer-bar">
+      <span class="img-viewer-count"></span>
+      <span style="display:flex;gap:8px">
+        <button type="button" class="img-viewer-btn" data-iv="zoom" aria-label="拡大・縮小">🔍</button>
+        <button type="button" class="img-viewer-btn" data-iv="close" aria-label="閉じる">✕</button>
+      </span>
+    </div>
+    <button type="button" class="img-viewer-btn img-viewer-nav prev" data-iv="prev" aria-label="前の画像">‹</button>
+    <button type="button" class="img-viewer-btn img-viewer-nav next" data-iv="next" aria-label="次の画像">›</button>`;
+  document.body.appendChild(el);
+  const v = annImgViewer = {
+    images, index, el,
+    stage: el.querySelector('.img-viewer-stage'),
+    img: el.querySelector('img'),
+    scale: 1, tx: 0, ty: 0,
+    pointers: new Map(), pinch: null, pan: null, lastTap: null,
+  };
+  bindDataClick(el, 'data-iv', (act, ev) => {
+    ev.stopPropagation();
+    if (act === 'close') closeAnnImageViewer();
+    else if (act === 'prev') showAnnImage(v.index - 1);
+    else if (act === 'next') showAnnImage(v.index + 1);
+    else if (act === 'zoom') {
+      const r = v.stage.getBoundingClientRect();
+      zoomAnnImageAt(v.scale > 1 ? 1 : ANN_IMG_ZOOM_STEP, r.left + r.width / 2, r.top + r.height / 2);
+    }
+  });
+  v.stage.addEventListener('pointerdown', onAnnImgPointerDown);
+  v.stage.addEventListener('pointermove', onAnnImgPointerMove);
+  v.stage.addEventListener('pointerup', onAnnImgPointerUp);
+  v.stage.addEventListener('pointercancel', onAnnImgPointerUp);
+  // iOS Safari がページ全体をピンチズームしないようにする(touch-action:none と併用)
+  el.addEventListener('gesturestart', e => e.preventDefault());
+  history.pushState({ annImgViewer: true }, '');
+  window.addEventListener('popstate', onAnnImgViewerPop);
+  document.addEventListener('keydown', onAnnImgViewerKey);
+  showAnnImage(index);
+}
+
+// fromPop: 戻る操作で閉じた場合は履歴をそれ以上戻さない
+function closeAnnImageViewer(fromPop) {
+  const v = annImgViewer;
+  if (!v) return;
+  annImgViewer = null;
+  window.removeEventListener('popstate', onAnnImgViewerPop);
+  document.removeEventListener('keydown', onAnnImgViewerKey);
+  v.el.remove();
+  if (!fromPop && history.state && history.state.annImgViewer) history.back();
+}
+
+function onAnnImgViewerPop() { closeAnnImageViewer(true); }
+
+function onAnnImgViewerKey(e) {
+  const v = annImgViewer;
+  if (!v) return;
+  if (e.key === 'Escape') closeAnnImageViewer();
+  else if (e.key === 'ArrowLeft') showAnnImage(v.index - 1);
+  else if (e.key === 'ArrowRight') showAnnImage(v.index + 1);
+}
+
+function showAnnImage(i) {
+  const v = annImgViewer;
+  if (!v || i < 0 || i >= v.images.length) return;
+  v.index = i;
+  v.scale = 1; v.tx = 0; v.ty = 0;
+  v.img.src = v.images[i].url;   // プロパティへの代入なのでHTMLとしては解釈されない
+  applyAnnImageTransform();
+  const n = v.images.length;
+  v.el.querySelector('.img-viewer-count').textContent = `${i + 1} / ${n}`;
+  const prev = v.el.querySelector('.img-viewer-nav.prev'), next = v.el.querySelector('.img-viewer-nav.next');
+  prev.classList.toggle('hidden', n < 2);
+  next.classList.toggle('hidden', n < 2);
+  prev.disabled = i === 0;
+  next.disabled = i === n - 1;
+}
+
+// 画像の表示位置(拡大前)をステージ基準で返す
+function annImageBase() {
+  const v = annImgViewer;
+  return { x: v.img.offsetLeft, y: v.img.offsetTop, w: v.img.offsetWidth, h: v.img.offsetHeight,
+           sw: v.stage.clientWidth, sh: v.stage.clientHeight };
+}
+
+// 拡大した画像がステージの外へ逃げないように位置を補正する(等倍なら中央に戻す)
+function clampAnnImage() {
+  const v = annImgViewer;
+  if (v.scale <= 1) { v.scale = 1; v.tx = 0; v.ty = 0; return; }
+  const b = annImageBase();
+  const fit = (t, base, size, stageSize) => {
+    const shown = size * v.scale;
+    if (shown <= stageSize) return (stageSize - shown) / 2 - base;   // 収まる向きは中央寄せ
+    return Math.min(-base, Math.max(stageSize - base - shown, t));  // はみ出す向きは端まで
+  };
+  v.tx = fit(v.tx, b.x, b.w, b.sw);
+  v.ty = fit(v.ty, b.y, b.h, b.sh);
+}
+
+function applyAnnImageTransform() {
+  const v = annImgViewer;
+  v.img.style.transform = `translate(${v.tx}px, ${v.ty}px) scale(${v.scale})`;
+}
+
+// 画面上の点(clientX, clientY)を中心に、倍率 newScale へ変える
+function zoomAnnImageAt(newScale, clientX, clientY, from) {
+  const v = annImgViewer;
+  const s0 = from ? from.scale : v.scale, tx0 = from ? from.tx : v.tx, ty0 = from ? from.ty : v.ty;
+  const r = v.stage.getBoundingClientRect();
+  const b = annImageBase();
+  const px = clientX - r.left - b.x, py = clientY - r.top - b.y;
+  const qx = (px - tx0) / s0, qy = (py - ty0) / s0;   // 画像上の点(拡大前の座標)
+  v.scale = Math.min(ANN_IMG_ZOOM_MAX, Math.max(1, newScale));
+  v.tx = px - v.scale * qx;
+  v.ty = py - v.scale * qy;
+  clampAnnImage();
+  applyAnnImageTransform();
+}
+
+function onAnnImgPointerDown(e) {
+  const v = annImgViewer;
+  if (!v) return;
+  v.stage.setPointerCapture(e.pointerId);
+  v.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, t0: Date.now() });
+  if (v.pointers.size === 2) {
+    const [p1, p2] = [...v.pointers.values()];
+    v.pinch = { dist: Math.hypot(p2.x - p1.x, p2.y - p1.y) || 1,
+                midX: (p1.x + p2.x) / 2, midY: (p1.y + p2.y) / 2,
+                scale: v.scale, tx: v.tx, ty: v.ty };
+    v.pan = null;
+  } else if (v.pointers.size === 1) {
+    v.pan = { x: e.clientX, y: e.clientY, tx: v.tx, ty: v.ty };
+  }
+}
+
+function onAnnImgPointerMove(e) {
+  const v = annImgViewer;
+  if (!v || !v.pointers.has(e.pointerId)) return;
+  const p = v.pointers.get(e.pointerId);
+  p.x = e.clientX; p.y = e.clientY;
+  if (v.pinch && v.pointers.size >= 2) {
+    const [p1, p2] = [...v.pointers.values()];
+    const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y) || 1;
+    // ピンチ開始時の2本指の中点を基準にした倍率で拡大し、中点の移動に合わせてずらす
+    zoomAnnImageAt(v.pinch.scale * dist / v.pinch.dist, v.pinch.midX, v.pinch.midY, v.pinch);
+    v.tx += (p1.x + p2.x) / 2 - v.pinch.midX;
+    v.ty += (p1.y + p2.y) / 2 - v.pinch.midY;
+    clampAnnImage();
+    applyAnnImageTransform();
+  } else if (v.pan && v.scale > 1) {
+    v.tx = v.pan.tx + (e.clientX - v.pan.x);
+    v.ty = v.pan.ty + (e.clientY - v.pan.y);
+    clampAnnImage();
+    applyAnnImageTransform();
+  }
+}
+
+function onAnnImgPointerUp(e) {
+  const v = annImgViewer;
+  if (!v || !v.pointers.has(e.pointerId)) return;
+  const p = v.pointers.get(e.pointerId);
+  v.pointers.delete(e.pointerId);
+  const wasPinch = !!v.pinch;
+  if (v.pointers.size < 2) v.pinch = null;
+  if (v.pointers.size === 1) {   // ピンチ後に1本指が残ったら、そこからずらしを続ける
+    const [rest] = [...v.pointers.values()];
+    v.pan = { x: rest.x, y: rest.y, tx: v.tx, ty: v.ty };
+    return;
+  }
+  v.pan = null;
+  if (wasPinch || e.type === 'pointercancel') return;
+  const dx = e.clientX - p.x0, dy = e.clientY - p.y0, dt = Date.now() - p.t0;
+  // 等倍のときの左右スワイプで前後の画像へ
+  if (v.scale === 1 && Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+    showAnnImage(v.index + (dx < 0 ? 1 : -1));
+    v.lastTap = null;
+    return;
+  }
+  // ダブルタップで 等倍⇄2.5倍(タップした位置を中心に)
+  if (Math.abs(dx) < 10 && Math.abs(dy) < 10 && dt < 300) {
+    const now = Date.now();
+    if (v.lastTap && now - v.lastTap.t < 320 && Math.hypot(e.clientX - v.lastTap.x, e.clientY - v.lastTap.y) < 30) {
+      zoomAnnImageAt(v.scale > 1 ? 1 : ANN_IMG_ZOOM_STEP, e.clientX, e.clientY);
+      v.lastTap = null;
+    } else {
+      v.lastTap = { t: now, x: e.clientX, y: e.clientY };
+    }
+  }
+}
+
 // 詳細画面で開いているお知らせのreadsサブコレクションを購読する
 function attachAnnReadsListener(id) {
   if (annReadsUnsub) { annReadsUnsub(); annReadsUnsub = null; }
