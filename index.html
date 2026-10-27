@@ -4342,7 +4342,7 @@ function renderAnnCard(a, opts={}) {
             ${isManager ? mkTag('対象: '+escHtml(team.label), 'var(--text-sub)') : ''}
             <span style="font-size:12px;color:var(--text-muted)">${escHtml(a.from)}</span>
           </div>
-          <div style="font-weight:${isRead && !isManager && !mustPending?500:700};font-size:16px;margin-bottom:4px;color:var(--navy);line-height:1.5">${titleHtml}</div>
+          <div style="font-weight:${isRead && !isManager && !mustPending?500:700};font-size:16px;margin-bottom:4px;color:var(--navy);line-height:1.5">${titleHtml}${Array.isArray(a.images) && a.images.length > 0 ? '<span class="ann-img-mark" aria-label="画像あり" title="画像あり">🖼</span>' : ''}</div>
           <div style="font-size:14px;color:var(--text-sub);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${bodyHtml}</div>
           ${dl ? `<div class="deadline-text ${dl.level}" style="margin-top:6px"><span>⏱️</span>${dl.text}</div>` : ''}
           ${(a.tags||[]).length ? `<div style="display:flex;gap:5px;margin-top:8px;flex-wrap:wrap">
@@ -5773,6 +5773,9 @@ function deleteAnn(id) {
 
 async function confirmDeleteAnn(id) {
   try {
+    // 添付画像(v0.5)を先に Storage から消す。失敗しても Firestore の削除は続行する(confirmDeleteMan と同じ方針)
+    const a = findAnn(id);
+    await deleteStoragePaths(((a && a.images) || []).map(img => img.path).filter(Boolean));
     await fbDb.collection('announcements').doc(id).delete();
     closeModal();
     setTimeout(() => showToast('✓ お知らせを削除しました'), 200);
