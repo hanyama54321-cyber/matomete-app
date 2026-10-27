@@ -1957,6 +1957,33 @@ header {
   pointer-events: none;
   z-index: -1;
 }
+
+/* ===== v0.5 周知の添付画像 ===== */
+/* 編集画面のサムネイル */
+.ed-img-list { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.ed-img-item { position: relative; width: 84px; height: 84px; border-radius: 8px; overflow: hidden; background: var(--surface2); border: 1px solid var(--border); }
+.ed-img-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ed-img-remove { position: absolute; top: 3px; right: 3px; width: 26px; height: 26px; border-radius: 50%; border: none; background: rgba(19,41,75,.75); color: #fff; font-size: 13px; line-height: 26px; padding: 0; cursor: pointer; }
+.ed-img-progress { font-size: 12px; color: var(--text-sub); margin-top: 6px; }
+/* 詳細画面の画像(本文の直下) */
+.ann-img-wrap { margin-top: 14px; }
+.ann-img-btn { display: block; width: 100%; padding: 0; border: none; background: none; cursor: zoom-in; }
+.ann-img { display: block; width: 100%; height: auto; border-radius: 10px; background: var(--surface2); }
+.ann-img-failed .ann-img { display: none; }
+.ann-img-failed .ann-img-btn { cursor: default; }
+.ann-img-failed .ann-img-btn::after { content: '画像を読み込めませんでした'; display: block; padding: 22px 12px; border: 1px dashed var(--border); border-radius: 10px; color: var(--text-muted); font-size: 13px; text-align: center; }
+/* 一覧の画像付きマーク */
+.ann-img-mark { font-size: 14px; margin-left: 4px; vertical-align: 1px; }
+/* 全画面表示(拡大)。ページ全体のズームは使わず、この中だけで拡大する */
+.img-viewer { position: fixed; inset: 0; z-index: 1500; background: #000; touch-action: none; overflow: hidden; user-select: none; -webkit-user-select: none; }
+.img-viewer-stage { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+.img-viewer-stage img { max-width: 100%; max-height: 100%; transform-origin: 0 0; will-change: transform; -webkit-user-drag: none; }
+.img-viewer-bar { position: absolute; left: 0; right: 0; top: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: calc(env(safe-area-inset-top) + 8px) 12px 8px; background: linear-gradient(rgba(0,0,0,.6), rgba(0,0,0,0)); color: #fff; font-size: 14px; }
+.img-viewer-btn { min-width: 44px; height: 44px; border-radius: 22px; border: none; background: rgba(255,255,255,.18); color: #fff; font-size: 18px; cursor: pointer; }
+.img-viewer-btn:disabled { opacity: .3; }
+.img-viewer-nav { position: absolute; top: 50%; transform: translateY(-50%); }
+.img-viewer-nav.prev { left: 8px; }
+.img-viewer-nav.next { right: 8px; }
 </style>
 </head>
 <body>
@@ -2597,7 +2624,7 @@ header {
 // ヘッダーバッジ・ユーザーメニュー・アプリ情報画面・利用状況計測(sessions.appVersion)は
 // すべてこの定数を参照する(#version-badge/#um-version-subtitleへは初期化処理でJSから反映、
 // アプリ情報画面・recordSession()は関数内で直接参照)
-const APP_VERSION = '0.4.9';
+const APP_VERSION = '0.5';
 
 /* ===== データ ===== */
 
@@ -3979,6 +4006,7 @@ async function saveNotifPrefs() {
 
 // 更新履歴。git履歴・HANDOFF.md・TECH_DEBT.mdから裏の取れる範囲で記録する(過去分を遡って捏造しない)
 const CHANGELOG = [
+  { version: '0.5', items: ['お知らせに画像を添付できるように(1件につき最大3枚。本文の下に表示)', '画像をタップすると全画面で表示し、拡大して細部まで見られます', '一覧で画像付きのお知らせに🖼マークを表示'] },
   { version: '0.4.9', items: ['お知らせ・チャット・手順書・KYTで、入力された < > & などの記号がそのまま表示されるように修正'] },
   { version: '0.4.8', items: ['チャットの「安全指導班」を管理者専用の「管理者班」に変更(管理者だけが閲覧・投稿できます)', '班に所属していない乗務員のプロフィール・報告の表示を修正'] },
   { version: '0.4.7', items: ['サーバー側の実行環境を更新(画面の変更はありません)'] },
@@ -4315,7 +4343,7 @@ function renderAnnCard(a, opts={}) {
             ${isManager ? mkTag('対象: '+escHtml(team.label), 'var(--text-sub)') : ''}
             <span style="font-size:12px;color:var(--text-muted)">${escHtml(a.from)}</span>
           </div>
-          <div style="font-weight:${isRead && !isManager && !mustPending?500:700};font-size:16px;margin-bottom:4px;color:var(--navy);line-height:1.5">${titleHtml}</div>
+          <div style="font-weight:${isRead && !isManager && !mustPending?500:700};font-size:16px;margin-bottom:4px;color:var(--navy);line-height:1.5">${titleHtml}${Array.isArray(a.images) && a.images.length > 0 ? '<span class="ann-img-mark" aria-label="画像あり" title="画像あり">🖼</span>' : ''}</div>
           <div style="font-size:14px;color:var(--text-sub);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${bodyHtml}</div>
           ${dl ? `<div class="deadline-text ${dl.level}" style="margin-top:6px"><span>⏱️</span>${dl.text}</div>` : ''}
           ${(a.tags||[]).length ? `<div style="display:flex;gap:5px;margin-top:8px;flex-wrap:wrap">
@@ -4669,6 +4697,7 @@ function renderAnnDetailBody(id) {
       ${tagsBlock}
       <div class="divider"></div>
       <p style="line-height:1.9;font-size:16px;margin:0;white-space:pre-wrap">${escHtml(a.body)}</p>
+      ${annImagesHtml(a)}
       ${ackBlock}
       ${isManager ? `
         <div class="divider"></div>
@@ -4689,6 +4718,240 @@ function renderAnnDetailBody(id) {
     </div>`;
   // 一覧側とは遷移先が違う(詳細を閉じてからフィルタ)ため属性名を分けている
   bindDataClick(document.getElementById('ann-detail'), 'data-ann-thread-tag', tag => goToTagThread(tag));
+  bindDataClick(document.getElementById('ann-detail'), 'data-ann-img-idx', (idx, ev, el) => {
+    if (el.closest('.ann-img-failed')) return;   // 読み込めなかった画像は開かない
+    openAnnImageViewer(a.id, Number(idx));
+  });
+}
+
+// 詳細画面の添付画像(v0.5)。本文の直下・必読確認ボタンの上に縦に並べる(図を見ずに確認だけ押す流れを
+// 作りにくくするため)。width/height で読み込み前から枠の高さを確保し、画面のガタつきを防ぐ
+function annImagesHtml(a) {
+  const images = Array.isArray(a.images) ? a.images : [];
+  if (images.length === 0) return '';
+  return images.map((img, i) => {
+    const w = Math.round(Number(img.w)) || '', h = Math.round(Number(img.h)) || '';
+    return `
+      <div class="ann-img-wrap">
+        <button type="button" class="ann-img-btn" data-ann-img-idx="${i}" aria-label="画像${i + 1}を拡大して表示">
+          <img class="ann-img" src="${escHtml(img.url)}" ${w ? `width="${w}"` : ''} ${h ? `height="${h}"` : ''}
+            loading="lazy" alt="添付画像${i + 1}" onerror="this.closest('.ann-img-wrap').classList.add('ann-img-failed')">
+        </button>
+      </div>`;
+  }).join('');
+}
+
+/* ===== 周知の画像の全画面表示(v0.5) =====
+   ページ全体のズーム(meta viewport)には頼らず、この要素の中だけで拡大する(閉じれば何も残らない)。
+   - ピンチ(2本指)で拡大縮小(1〜5倍)。拡大中は1本指でずらす
+   - ダブルタップ、または🔍ボタンで 等倍⇄2.5倍
+   - 等倍のときは左右スワイプ、または ‹ › で前後の画像へ。「1 / 3」で位置を表示
+   - ✕・Escキー・Android の戻る操作で閉じる(開くときに履歴を1つ積み、popstate で閉じる) */
+const ANN_IMG_ZOOM_MAX = 5;
+const ANN_IMG_ZOOM_STEP = 2.5;
+let annImgViewer = null;
+
+function openAnnImageViewer(annId, index) {
+  const a = findAnn(annId);
+  const images = (a && Array.isArray(a.images)) ? a.images : [];
+  if (!images[index] || annImgViewer) return;
+  const el = document.createElement('div');
+  el.className = 'img-viewer';
+  el.setAttribute('role', 'dialog');
+  el.setAttribute('aria-modal', 'true');
+  el.setAttribute('aria-label', '画像の拡大表示');
+  el.innerHTML = `
+    <div class="img-viewer-stage"><img alt="" draggable="false"></div>
+    <div class="img-viewer-bar">
+      <span class="img-viewer-count"></span>
+      <span style="display:flex;gap:8px">
+        <button type="button" class="img-viewer-btn" data-iv="zoom" aria-label="拡大・縮小">🔍</button>
+        <button type="button" class="img-viewer-btn" data-iv="close" aria-label="閉じる">✕</button>
+      </span>
+    </div>
+    <button type="button" class="img-viewer-btn img-viewer-nav prev" data-iv="prev" aria-label="前の画像">‹</button>
+    <button type="button" class="img-viewer-btn img-viewer-nav next" data-iv="next" aria-label="次の画像">›</button>`;
+  document.body.appendChild(el);
+  const v = annImgViewer = {
+    images, index, el,
+    stage: el.querySelector('.img-viewer-stage'),
+    img: el.querySelector('img'),
+    scale: 1, tx: 0, ty: 0,
+    pointers: new Map(), pinch: null, pan: null, lastTap: null,
+  };
+  bindDataClick(el, 'data-iv', (act, ev) => {
+    ev.stopPropagation();
+    if (act === 'close') closeAnnImageViewer();
+    else if (act === 'prev') showAnnImage(v.index - 1);
+    else if (act === 'next') showAnnImage(v.index + 1);
+    else if (act === 'zoom') {
+      const r = v.stage.getBoundingClientRect();
+      zoomAnnImageAt(v.scale > 1 ? 1 : ANN_IMG_ZOOM_STEP, r.left + r.width / 2, r.top + r.height / 2);
+    }
+  });
+  v.stage.addEventListener('pointerdown', onAnnImgPointerDown);
+  v.stage.addEventListener('pointermove', onAnnImgPointerMove);
+  v.stage.addEventListener('pointerup', onAnnImgPointerUp);
+  v.stage.addEventListener('pointercancel', onAnnImgPointerUp);
+  // iOS Safari がページ全体をピンチズームしないようにする(touch-action:none と併用)
+  el.addEventListener('gesturestart', e => e.preventDefault());
+  history.pushState({ annImgViewer: true }, '');
+  window.addEventListener('popstate', onAnnImgViewerPop);
+  document.addEventListener('keydown', onAnnImgViewerKey);
+  showAnnImage(index);
+}
+
+// fromPop: 戻る操作で閉じた場合は履歴をそれ以上戻さない
+function closeAnnImageViewer(fromPop) {
+  const v = annImgViewer;
+  if (!v) return;
+  annImgViewer = null;
+  window.removeEventListener('popstate', onAnnImgViewerPop);
+  document.removeEventListener('keydown', onAnnImgViewerKey);
+  v.el.remove();
+  if (!fromPop && history.state && history.state.annImgViewer) history.back();
+}
+
+function onAnnImgViewerPop() { closeAnnImageViewer(true); }
+
+function onAnnImgViewerKey(e) {
+  const v = annImgViewer;
+  if (!v) return;
+  if (e.key === 'Escape') closeAnnImageViewer();
+  else if (e.key === 'ArrowLeft') showAnnImage(v.index - 1);
+  else if (e.key === 'ArrowRight') showAnnImage(v.index + 1);
+}
+
+function showAnnImage(i) {
+  const v = annImgViewer;
+  if (!v || i < 0 || i >= v.images.length) return;
+  v.index = i;
+  v.scale = 1; v.tx = 0; v.ty = 0;
+  v.img.src = v.images[i].url;   // プロパティへの代入なのでHTMLとしては解釈されない
+  applyAnnImageTransform();
+  const n = v.images.length;
+  v.el.querySelector('.img-viewer-count').textContent = `${i + 1} / ${n}`;
+  const prev = v.el.querySelector('.img-viewer-nav.prev'), next = v.el.querySelector('.img-viewer-nav.next');
+  prev.classList.toggle('hidden', n < 2);
+  next.classList.toggle('hidden', n < 2);
+  prev.disabled = i === 0;
+  next.disabled = i === n - 1;
+}
+
+// 画像の表示位置(拡大前)をステージ基準で返す
+function annImageBase() {
+  const v = annImgViewer;
+  return { x: v.img.offsetLeft, y: v.img.offsetTop, w: v.img.offsetWidth, h: v.img.offsetHeight,
+           sw: v.stage.clientWidth, sh: v.stage.clientHeight };
+}
+
+// 拡大した画像がステージの外へ逃げないように位置を補正する(等倍なら中央に戻す)
+function clampAnnImage() {
+  const v = annImgViewer;
+  if (v.scale <= 1) { v.scale = 1; v.tx = 0; v.ty = 0; return; }
+  const b = annImageBase();
+  const fit = (t, base, size, stageSize) => {
+    const shown = size * v.scale;
+    if (shown <= stageSize) return (stageSize - shown) / 2 - base;   // 収まる向きは中央寄せ
+    return Math.min(-base, Math.max(stageSize - base - shown, t));  // はみ出す向きは端まで
+  };
+  v.tx = fit(v.tx, b.x, b.w, b.sw);
+  v.ty = fit(v.ty, b.y, b.h, b.sh);
+}
+
+function applyAnnImageTransform() {
+  const v = annImgViewer;
+  v.img.style.transform = `translate(${v.tx}px, ${v.ty}px) scale(${v.scale})`;
+}
+
+// 画面上の点(clientX, clientY)を中心に、倍率 newScale へ変える
+function zoomAnnImageAt(newScale, clientX, clientY, from) {
+  const v = annImgViewer;
+  const s0 = from ? from.scale : v.scale, tx0 = from ? from.tx : v.tx, ty0 = from ? from.ty : v.ty;
+  const r = v.stage.getBoundingClientRect();
+  const b = annImageBase();
+  const px = clientX - r.left - b.x, py = clientY - r.top - b.y;
+  const qx = (px - tx0) / s0, qy = (py - ty0) / s0;   // 画像上の点(拡大前の座標)
+  v.scale = Math.min(ANN_IMG_ZOOM_MAX, Math.max(1, newScale));
+  v.tx = px - v.scale * qx;
+  v.ty = py - v.scale * qy;
+  clampAnnImage();
+  applyAnnImageTransform();
+}
+
+function onAnnImgPointerDown(e) {
+  const v = annImgViewer;
+  if (!v) return;
+  try { v.stage.setPointerCapture(e.pointerId); } catch (_) { /* 取れなくても操作は続ける */ }
+  v.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, t0: Date.now() });
+  if (v.pointers.size === 2) {
+    v.multiTouch = true;   // 指がすべて離れるまで、スワイプ・タップとしては扱わない
+    const [p1, p2] = [...v.pointers.values()];
+    v.pinch = { dist: Math.hypot(p2.x - p1.x, p2.y - p1.y) || 1,
+                midX: (p1.x + p2.x) / 2, midY: (p1.y + p2.y) / 2,
+                scale: v.scale, tx: v.tx, ty: v.ty };
+    v.pan = null;
+  } else if (v.pointers.size === 1) {
+    v.pan = { x: e.clientX, y: e.clientY, tx: v.tx, ty: v.ty };
+  }
+}
+
+function onAnnImgPointerMove(e) {
+  const v = annImgViewer;
+  if (!v || !v.pointers.has(e.pointerId)) return;
+  const p = v.pointers.get(e.pointerId);
+  p.x = e.clientX; p.y = e.clientY;
+  if (v.pinch && v.pointers.size >= 2) {
+    const [p1, p2] = [...v.pointers.values()];
+    const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y) || 1;
+    // ピンチ開始時の2本指の中点を基準にした倍率で拡大し、中点の移動に合わせてずらす
+    zoomAnnImageAt(v.pinch.scale * dist / v.pinch.dist, v.pinch.midX, v.pinch.midY, v.pinch);
+    v.tx += (p1.x + p2.x) / 2 - v.pinch.midX;
+    v.ty += (p1.y + p2.y) / 2 - v.pinch.midY;
+    clampAnnImage();
+    applyAnnImageTransform();
+  } else if (v.pan && v.scale > 1) {
+    v.tx = v.pan.tx + (e.clientX - v.pan.x);
+    v.ty = v.pan.ty + (e.clientY - v.pan.y);
+    clampAnnImage();
+    applyAnnImageTransform();
+  }
+}
+
+function onAnnImgPointerUp(e) {
+  const v = annImgViewer;
+  if (!v || !v.pointers.has(e.pointerId)) return;
+  const p = v.pointers.get(e.pointerId);
+  v.pointers.delete(e.pointerId);
+  if (v.pointers.size < 2) v.pinch = null;
+  if (v.pointers.size === 1) {   // ピンチ後に1本指が残ったら、そこからずらしを続ける
+    const [rest] = [...v.pointers.values()];
+    v.pan = { x: rest.x, y: rest.y, tx: v.tx, ty: v.ty };
+    return;
+  }
+  v.pan = null;
+  // 2本指を使った操作の最後の指を離したときは、その指の移動をスワイプ・タップと取り違えない
+  const wasMultiTouch = !!v.multiTouch;
+  v.multiTouch = false;
+  if (wasMultiTouch) { v.lastTap = null; return; }
+  if (e.type === 'pointercancel') return;
+  const dx = e.clientX - p.x0, dy = e.clientY - p.y0, dt = Date.now() - p.t0;
+  // 等倍のときの左右スワイプで前後の画像へ
+  if (v.scale === 1 && Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+    showAnnImage(v.index + (dx < 0 ? 1 : -1));
+    v.lastTap = null;
+    return;
+  }
+  // ダブルタップで 等倍⇄2.5倍(タップした位置を中心に)
+  if (Math.abs(dx) < 10 && Math.abs(dy) < 10 && dt < 300) {
+    const now = Date.now();
+    if (v.lastTap && now - v.lastTap.t < 320 && Math.hypot(e.clientX - v.lastTap.x, e.clientY - v.lastTap.y) < 30) {
+      zoomAnnImageAt(v.scale > 1 ? 1 : ANN_IMG_ZOOM_STEP, e.clientX, e.clientY);
+      v.lastTap = null;
+    } else {
+      v.lastTap = { t: now, x: e.clientX, y: e.clientY };
+    }
+  }
 }
 
 // 詳細画面で開いているお知らせのreadsサブコレクションを購読する
@@ -4777,6 +5040,8 @@ function openAnnEditor(id) {
 
   // タグ初期化
   st.edTags = (init.tags || []).slice();
+  // 画像初期化(v0.5)。既存分は {url,path,w,h}、新しく選んだ分は {blob,previewUrl,w,h}
+  edImagesReset((init.images || []).map(img => ({ url: img.url, path: img.path, w: img.w, h: img.h })));
 
   // 予約日時の初期値（編集中なら既存値、新規なら現在＋1時間）
   let schedDate = '', schedTime = '';
@@ -4821,6 +5086,14 @@ function openAnnEditor(id) {
           <label class="form-label">本文<span class="form-required">*</span></label>
           <textarea id="ed-body" class="form-textarea" placeholder="お知らせの内容を入力..."
             oninput="updateEditorState()">${escHtml(init.body)}</textarea>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">画像（最大${ANN_IMG_MAX}枚）</label>
+          <div id="ed-img-list" class="ed-img-list"></div>
+          <input type="file" id="ed-img-input" accept="image/*" multiple class="hidden" onchange="onEdImagesPicked(this)">
+          <button type="button" id="ed-img-add-btn" class="btn btn-ghost" style="font-size:13px" onclick="document.getElementById('ed-img-input').click()">🖼 画像を追加</button>
+          <div id="ed-img-progress" class="ed-img-progress hidden"></div>
         </div>
 
         <div class="form-group">
@@ -4949,7 +5222,158 @@ function openAnnEditor(id) {
     hasDeadline: hasDeadline,
   };
   renderEdTags();
+  renderEdImages();
   updateEditorState();
+}
+
+/* === エディタ 画像(v0.5) ===
+   選んだ時点で端末側で縮小し(長辺1600px・JPEG)、保存時にまとめてアップロードする。
+   Storage のパスは announcements/{お知らせID}/{ランダムなID}.jpg(元のファイル名は使わない) */
+const ANN_IMG_MAX = 3;             // 1件あたりの上限(firestore.rules の images.size() <= 3 と一致させること)
+const ANN_IMG_LONG_EDGE = 1600;    // 縮小後の長辺(px)。これより小さい画像は拡大しない
+const ANN_IMG_QUALITY = 0.8;       // JPEG品質
+let edImages = [];          // 編集中の画像。既存分 {url,path,w,h} / 新しく選んだ分 {blob,previewUrl,w,h}
+let edImagesRemoved = [];   // 編集で取り除いた既存画像のパス(Firestore更新の成功後にStorageから消す)
+let edImagesBusy = false;   // 縮小・アップロード中(保存ボタンと追加ボタンを止める)
+
+function edImagesReset(list) {
+  edImages.forEach(img => { if (img.previewUrl) URL.revokeObjectURL(img.previewUrl); });
+  edImages = list;
+  edImagesRemoved = [];
+  edImagesBusy = false;
+}
+
+// 画像ファイルを長辺 ANN_IMG_LONG_EDGE 以下の JPEG に縮小する。読み込めなければ null。
+// iPhone の写真が横倒しにならないよう、EXIF の向きを反映して読み込む
+async function decodeImageForAnn(file) {
+  try {
+    return await createImageBitmap(file, { imageOrientation: 'from-image' });
+  } catch (e) {
+    // createImageBitmap が使えない・オプション未対応の端末向け。<img> は既定で EXIF の向きを反映する
+    const url = URL.createObjectURL(file);
+    try {
+      const img = new Image();
+      img.src = url;
+      await img.decode();
+      return img;
+    } catch (e2) {
+      return null;   // HEIC のまま渡された等、ブラウザが読めない画像
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+}
+
+async function resizeImageForAnn(file) {
+  const src = await decodeImageForAnn(file);
+  if (!src) return null;
+  const srcW = src.width || src.naturalWidth, srcH = src.height || src.naturalHeight;
+  if (!srcW || !srcH) return null;
+  const scale = Math.min(1, ANN_IMG_LONG_EDGE / Math.max(srcW, srcH));
+  const w = Math.max(1, Math.round(srcW * scale));
+  const h = Math.max(1, Math.round(srcH * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#FFFFFF';   // JPEG は透過を持てないため、透過PNGの背景は白にする
+  ctx.fillRect(0, 0, w, h);
+  ctx.drawImage(src, 0, 0, w, h);
+  if (src.close) src.close();
+  const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', ANN_IMG_QUALITY));
+  return blob ? { blob, w, h, srcW, srcH } : null;
+}
+
+async function onEdImagesPicked(input) {
+  const files = Array.from(input.files || []);
+  input.value = '';   // 同じファイルを続けて選び直せるようにする
+  if (files.length === 0 || edImagesBusy) return;
+  const room = ANN_IMG_MAX - edImages.length;
+  if (room <= 0) return;
+  if (files.length > room) showToast(`画像は最大${ANN_IMG_MAX}枚までです（先頭${room}枚を追加しました）`);
+  edImagesBusy = true;
+  setEdImgProgress('画像を読み込み中...');
+  renderEdImages();
+  updateEditorState();
+  for (const file of files.slice(0, room)) {
+    const r = await resizeImageForAnn(file);
+    if (!r) { showToast('⚠️ この画像は読み込めませんでした'); continue; }
+    edImages.push({ blob: r.blob, previewUrl: URL.createObjectURL(r.blob), w: r.w, h: r.h });
+  }
+  edImagesBusy = false;
+  setEdImgProgress('');
+  renderEdImages();
+  updateEditorState();
+}
+
+function renderEdImages() {
+  const list = document.getElementById('ed-img-list');
+  if (!list) return;
+  list.innerHTML = edImages.map((img, i) => `
+    <div class="ed-img-item">
+      <img src="${escHtml(img.previewUrl || img.url)}" alt="">
+      <button type="button" class="ed-img-remove" data-ed-img-idx="${i}" aria-label="画像を取り除く">✕</button>
+    </div>`).join('');
+  bindDataClick(list, 'data-ed-img-idx', idx => removeEdImage(Number(idx)));
+  const btn = document.getElementById('ed-img-add-btn');
+  if (btn) {
+    const full = edImages.length >= ANN_IMG_MAX;
+    btn.disabled = edImagesBusy || full;
+    btn.style.opacity = btn.disabled ? '.45' : '1';
+    btn.textContent = full ? `🖼 ${ANN_IMG_MAX}枚まで追加済み` : '🖼 画像を追加';
+  }
+}
+
+function removeEdImage(i) {
+  if (edImagesBusy) return;
+  const [img] = edImages.splice(i, 1);
+  if (!img) return;
+  if (img.previewUrl) URL.revokeObjectURL(img.previewUrl);
+  if (img.path) edImagesRemoved.push(img.path);
+  renderEdImages();
+  updateEditorState();
+}
+
+function setEdImgProgress(text) {
+  const el = document.getElementById('ed-img-progress');
+  if (!el) return;
+  el.textContent = text;
+  el.classList.toggle('hidden', !text);
+}
+
+// 編集中の画像を並び順どおりに確定する。新しく選んだ分だけアップロードし、既存分はそのまま。
+// 途中で失敗したら、この保存で上げた分を消してから例外を投げる(Firestore には何も書かない)
+async function uploadEdImages(annId) {
+  const uploaded = [];
+  const images = [];
+  const fresh = edImages.filter(img => img.blob);
+  const totalBytes = fresh.reduce((s, img) => s + img.blob.size, 0) || 1;
+  let doneBytes = 0;
+  try {
+    for (const img of edImages) {
+      if (!img.blob) { images.push({ url: img.url, path: img.path, w: img.w, h: img.h }); continue; }
+      const path = `announcements/${annId}/${fbDb.collection('announcements').doc().id}.jpg`; // IDの生成のみ(書き込みなし)
+      const task = fbStorage.ref(path).put(img.blob, { contentType: 'image/jpeg' });
+      task.on('state_changed', snap => {
+        setEdImgProgress(`画像をアップロード中... ${Math.round((doneBytes + snap.bytesTransferred) / totalBytes * 100)}%`);
+      });
+      await task;
+      uploaded.push(path);
+      doneBytes += img.blob.size;
+      images.push({ url: await task.snapshot.ref.getDownloadURL(), path, w: img.w, h: img.h });
+    }
+    return { images, uploaded };
+  } catch (e) {
+    await deleteStoragePaths(uploaded);
+    throw e;
+  }
+}
+
+// Storage のファイルを消す。失敗しても続行する(残骸ファイルが残る方に倒す。手順書の削除と同じ方針)
+async function deleteStoragePaths(paths) {
+  await Promise.all((paths || []).map(p =>
+    fbStorage.ref(p).delete().catch(e => console.error('Storageファイル削除エラー(続行):', p, e))
+  ));
 }
 
 /* === エディタ タグ入力 === */
@@ -5059,6 +5483,7 @@ function updateEditorState() {
     const time = document.getElementById('ed-sched-time')?.value;
     if (!date || !time) ok = false;
   }
+  if (edImagesBusy) ok = false; // 画像の縮小・アップロード中は保存させない(v0.5)
   const btn = document.getElementById('ed-save-btn');
   if (btn) {
     btn.disabled = !ok;
@@ -5072,9 +5497,11 @@ function updateEditorState() {
    概算人数はクライアントではtokens/notifyPrefsを横断集計できないため、Cloud Functions側の
    estimateNotifyAudience callableで算出する */
 let notifySendConfirmCb = null;
+let notifySendCancelCb = null;
 
-async function openNotifySendConfirm({ title, targetLabel, eventKey, role, targetType, targetId, previewLines, onConfirm }) {
+async function openNotifySendConfirm({ title, targetLabel, eventKey, role, targetType, targetId, previewLines, onConfirm, onCancel }) {
   notifySendConfirmCb = onConfirm;
+  notifySendCancelCb = onCancel || null;   // v0.5: キャンセル時の後始末(先に上げた画像の削除)
   let countLabel = '(概算人数を取得できませんでした)';
   try {
     const res = await fbFunctions.httpsCallable('estimateNotifyAudience')({ eventKey, role: role || 'driver', targetType, targetId });
@@ -5108,13 +5535,17 @@ async function openNotifySendConfirm({ title, targetLabel, eventKey, role, targe
 function runNotifySendConfirm() {
   const cb = notifySendConfirmCb;
   notifySendConfirmCb = null;
+  notifySendCancelCb = null;
   closeModal();
   if (cb) cb();
 }
 
 function cancelNotifySendConfirm() {
+  const cancelCb = notifySendCancelCb;
   notifySendConfirmCb = null;
+  notifySendCancelCb = null;
   closeModal();
+  if (cancelCb) cancelCb();
 }
 
 async function saveAnn() {
@@ -5167,8 +5598,37 @@ async function saveAnn() {
     updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
   };
 
+  // 画像(v0.5)。必読の新規投稿は Firestore に書いた時点で通知が飛ぶ(onAnnouncementNotify)ため、
+  // 先にIDを確保して画像をすべてアップロードし、その後1回で書き込む(通知を受けて開いたときに画像が
+  // 無い状態を作らない・通知を二重に飛ばさない)。アップロードは送信確認ダイアログより前に行う
+  // (確認ダイアログは編集画面を閉じるため、失敗時に編集画面へ戻れるのはこの時点だけ)
+  const annId = isEdit ? st.editingAnnId : fbDb.collection('announcements').doc().id;
+  const hadImages = isEdit && ((findAnn(annId) || {}).images || []).length > 0;
+  let uploadedPaths = [];
+  if (edImages.length > 0 || hadImages) {
+    edImagesBusy = true;
+    renderEdImages();
+    updateEditorState();
+    try {
+      const r = await uploadEdImages(annId);
+      payload.images = r.images;   // 全部取り除いた編集では [] になる
+      uploadedPaths = r.uploaded;
+    } catch (err) {
+      console.error('画像アップロードエラー:', err);
+      showToast('⚠️ 画像のアップロードに失敗しました（' + (err.code || err.message) + '）');
+      edImagesBusy = false;
+      setEdImgProgress('');
+      renderEdImages();
+      updateEditorState();
+      return;
+    }
+    setEdImgProgress('保存中...');
+  }
+  const removedPaths = edImagesRemoved.slice();
+
   // 新規×即時公開×必読の組み合わせのみプッシュ通知が発火するため、この場合だけ送信前確認を挟む
   const willNotify = !isEdit && !isScheduled && ed.mustRead === true;
+  const submit = () => submitAnnPayload(payload, isEdit, isScheduled, scheduledAt, annId, removedPaths, uploadedPaths);
   if (willNotify) {
     await openNotifySendConfirm({
       title: '📢 必読お知らせを配信',
@@ -5176,30 +5636,38 @@ async function saveAnn() {
       eventKey: 'mustReadAnnouncement',
       role: 'driver',
       previewLines: [`📌 必読: ${title}`],
-      onConfirm: () => submitAnnPayload(payload, isEdit, isScheduled, scheduledAt),
+      onConfirm: submit,
+      // 送信をやめたら、先に上げた画像は使われないので消す
+      onCancel: () => deleteStoragePaths(uploadedPaths),
     });
   } else {
-    await submitAnnPayload(payload, isEdit, isScheduled, scheduledAt);
+    await submit();
   }
 }
 
-async function submitAnnPayload(payload, isEdit, isScheduled, scheduledAt) {
+// annId: 新規は saveAnn() で先に確保したID。removedPaths: 編集で取り除いた画像(更新成功後に消す)。
+// uploadedPaths: この保存で上げた画像(書き込みに失敗したら消す)
+async function submitAnnPayload(payload, isEdit, isScheduled, scheduledAt, annId, removedPaths, uploadedPaths) {
   const btn = document.getElementById('ed-save-btn');
   if (btn) btn.disabled = true;
   try {
     if (isEdit) {
-      const a = findAnn(st.editingAnnId);
+      const a = findAnn(annId);
       if (!isScheduled && a && !a.publishedAt) {
         payload.publishedAt = firebase.firestore.FieldValue.serverTimestamp();
       }
-      await fbDb.collection('announcements').doc(st.editingAnnId).update(payload);
+      await fbDb.collection('announcements').doc(annId).update(payload);
     } else {
       payload.authorUid = fbUser.code;
       payload.authorName = fbUser.name;
       payload.createdAt = firebase.firestore.FieldValue.serverTimestamp();
       payload.publishedAt = isScheduled ? null : firebase.firestore.FieldValue.serverTimestamp();
-      await fbDb.collection('announcements').add(payload);
+      // 旧実装の .add() と同じく書き込みは1回(IDを先に確保した分だけ set に変えた)
+      await fbDb.collection('announcements').doc(annId).set(payload);
     }
+    // 取り除いた画像は、Firestore の更新が成功してから消す(失敗しても続行)
+    deleteStoragePaths(removedPaths);
+    edImagesReset([]);
 
     closeModal();
     setTimeout(() => {
@@ -5213,6 +5681,13 @@ async function submitAnnPayload(payload, isEdit, isScheduled, scheduledAt) {
     }, 200);
   } catch (err) {
     showToast('⚠️ 保存に失敗しました（' + (err.code || err.message) + '）');
+    // この保存で上げた画像はどこからも参照されないので消す。編集画面が開いていれば、
+    // 選んだ画像は手元に残っているので、もう一度保存すれば上げ直される
+    deleteStoragePaths(uploadedPaths);
+    edImagesBusy = false;
+    setEdImgProgress('');
+    renderEdImages();
+    updateEditorState();
     if (btn) btn.disabled = false;
   }
 }
@@ -5303,6 +5778,9 @@ function deleteAnn(id) {
 
 async function confirmDeleteAnn(id) {
   try {
+    // 添付画像(v0.5)を先に Storage から消す。失敗しても Firestore の削除は続行する(confirmDeleteMan と同じ方針)
+    const a = findAnn(id);
+    await deleteStoragePaths(((a && a.images) || []).map(img => img.path).filter(Boolean));
     await fbDb.collection('announcements').doc(id).delete();
     closeModal();
     setTimeout(() => showToast('✓ お知らせを削除しました'), 200);

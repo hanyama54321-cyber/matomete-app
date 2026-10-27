@@ -27,6 +27,18 @@ service firebase.storage {
       allow delete: if isAdmin();
     }
 
+    // 周知の添付画像(v0.5)。パスは announcements/{お知らせID}/{ランダムなファイル名}.jpg
+    match /announcements/{annId}/{fileName} {
+      // 閲覧はログイン済み全員
+      allow read: if isSignedIn();
+      // アップロードはadminのみ。画像(image/*)かつ5MB未満(端末側で長辺1600pxのJPEGに縮小してから送る)
+      allow write: if isAdmin()
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      // 削除もadminのみ(write は削除時に request.resource が無いため、削除はこちらで許可する)
+      allow delete: if isAdmin();
+    }
+
     // 上記以外のパスはデフォルト拒否
     match /{allPaths=**} {
       allow read, write: if false;
