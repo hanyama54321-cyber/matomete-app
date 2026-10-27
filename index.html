@@ -1972,6 +1972,12 @@ header {
 .ann-img-failed .ann-img { display: none; }
 .ann-img-failed .ann-img-btn { cursor: default; }
 .ann-img-failed .ann-img-btn::after { content: '画像を読み込めませんでした'; display: block; padding: 22px 12px; border: 1px dashed var(--border); border-radius: 10px; color: var(--text-muted); font-size: 13px; text-align: center; }
+/* ===== v0.5.2 定型タグのボタン(投稿画面) ===== */
+.ed-preset-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; }
+.ed-preset-label { font-size: 12px; color: var(--text-sub); margin-right: 2px; }
+.ed-preset-tag { min-height: 34px; padding: 4px 12px; border-radius: 999px; border: 1.5px solid var(--border); background: var(--surface); color: var(--navy); font-size: 13px; font-weight: 600; cursor: pointer; }
+.ed-preset-tag.on { background: var(--primary); border-color: var(--primary); color: #fff; }
+.ed-preset-tag.on::before { content: '✓ '; }   /* 色だけに頼らず形でも選択中が分かるように */
 /* ===== v0.5.1 周知まとめ(印刷) =====
    見本 docs/samples/周知まとめ_サンプル.html の CSS を pr- 接頭辞で移したもの。
    画面表示時の #app / #bottom-nav / body / html には触れない(@media print の中だけで隠す) */
@@ -5360,7 +5366,6 @@ function openAnnEditor(id) {
   const init = a || {
     title: '',
     body: '',
-    category: 'work',
     priority: 'normal',
     target: 'all',
     pinned: false,
@@ -5371,8 +5376,8 @@ function openAnnEditor(id) {
     scheduledAt: null,
   };
 
-  // タグ初期化
-  st.edTags = (init.tags || []).slice();
+  // タグ初期化。新規作成は定型タグ「安全」が付いた状態で開く(v0.5.2)。編集は既存のタグのまま
+  st.edTags = isEdit ? (init.tags || []).slice() : [ANN_DEFAULT_TAG];
   // 画像初期化(v0.5)。既存分は {url,path,w,h}、新しく選んだ分は {blob,previewUrl,w,h}
   edImagesReset((init.images || []).map(img => ({ url: img.url, path: img.path, w: img.w, h: img.h })));
 
@@ -5430,17 +5435,11 @@ function openAnnEditor(id) {
         </div>
 
         <div class="form-group">
-          <label class="form-label">カテゴリ</label>
-          <div id="ed-cats" style="display:flex;flex-wrap:wrap;gap:8px">
-            ${annCategories.map(c => `
-              <button class="chip${init.category===c.id?' active':''}" data-cat="${c.id}"
-                onclick="selEdCat('${c.id}')">${c.label}</button>
-            `).join('')}
-          </div>
-        </div>
-
-        <div class="form-group">
           <label class="form-label">タグ <span style="font-weight:500;color:var(--text-muted);font-size:11px">（関連お知らせのスレッド化に利用）</span></label>
+          <div class="ed-preset-tags">
+            <span class="ed-preset-label">よく使うタグ：</span>
+            ${ANN_PRESET_TAGS.map(tag => `<button type="button" class="ed-preset-tag" data-ed-preset-tag="${escHtml(tag)}" aria-pressed="false">${escHtml(tag)}</button>`).join('')}
+          </div>
           <div class="tag-input-wrap" id="ed-tag-wrap" onclick="document.getElementById('ed-tag-input').focus()">
             <span id="ed-tag-chips"></span>
             <input type="text" id="ed-tag-input" class="tag-input-field"
@@ -5547,7 +5546,6 @@ function openAnnEditor(id) {
 
   // エディタの選択状態を保持
   st.edState = {
-    category: init.category,
     priority: init.priority,
     pinned:   init.pinned,
     timing:   isScheduledInit ? 'scheduled' : 'now',
@@ -5555,6 +5553,7 @@ function openAnnEditor(id) {
     hasDeadline: hasDeadline,
   };
   renderEdTags();
+  bindDataClick(document.querySelector('#modal-root .ed-preset-tags'), 'data-ed-preset-tag', tag => toggleEdPresetTag(tag));
   renderEdImages();
   updateEditorState();
 }
@@ -5710,7 +5709,36 @@ async function deleteStoragePaths(paths) {
 }
 
 /* === エディタ タグ入力 === */
+/* 定型タグ(v0.5.2)。周知のカテゴリの代わりに、タグ欄の上のボタンで付け外しする */
+const ANN_PRESET_TAGS = ['安全', '業務', '設備', 'その他', 'センター'];
+const ANN_DEFAULT_TAG = '安全';   // 新規作成時に最初から付けておくタグ
+
+// 定型タグのボタン: 付いていなければ追加、付いていれば外す。上限(5個)・重複不可は手入力と同じ
+function toggleEdPresetTag(tag) {
+  const i = st.edTags.indexOf(tag);
+  if (i >= 0) {
+    st.edTags.splice(i, 1);
+  } else {
+    if (st.edTags.length >= 5) {
+      showToast('⚠️ タグは最大5個までです');
+      return;
+    }
+    st.edTags.push(tag);
+  }
+  renderEdTags();
+}
+
+// 定型タグのボタンの選択状態を st.edTags に合わせる(✕で外した・手入力した場合も連動する)
+function renderEdPresetTags() {
+  document.querySelectorAll('#modal-root [data-ed-preset-tag]').forEach(btn => {
+    const on = st.edTags.includes(btn.getAttribute('data-ed-preset-tag'));
+    btn.classList.toggle('on', on);
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+}
+
 function renderEdTags() {
+  renderEdPresetTags();
   const wrap = document.getElementById('ed-tag-chips');
   if (!wrap) return;
   wrap.innerHTML = st.edTags.map((t,i) => `
@@ -5769,13 +5797,6 @@ function toggleEdDeadline() {
   st.edState.hasDeadline = !st.edState.hasDeadline;
   document.getElementById('ed-deadline-toggle').classList.toggle('on', st.edState.hasDeadline);
   document.getElementById('ed-deadline-fields').classList.toggle('hidden', !st.edState.hasDeadline);
-}
-
-function selEdCat(id) {
-  st.edState.category = id;
-  document.querySelectorAll('#ed-cats .chip').forEach(b => {
-    b.classList.toggle('active', b.dataset.cat === id);
-  });
 }
 
 function selEdPrio(id) {
@@ -5919,7 +5940,7 @@ async function saveAnn() {
 
   const payload = {
     title, body,
-    category: ed.category,
+    // category は v0.5.2 で画面から廃止。新規は書かず、編集では既存の値に触れない(update の対象から外す)
     priority: ed.priority,
     target: 'all', // 配信範囲は全員向けのみ(班別配信は設けない)
     pinned: ed.pinned,
