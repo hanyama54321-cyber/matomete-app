@@ -1982,8 +1982,8 @@ header {
    見本 docs/samples/周知まとめ_サンプル.html の CSS を pr- 接頭辞で移したもの。
    画面表示時の #app / #bottom-nav / body / html には触れない(@media print の中だけで隠す) */
 /* 入口ボタン: #ann-new-btn(管理者だけに出る)と表示・非表示を連動させる */
-.pr-entry-btn { display: block; width: 100%; margin: -4px 0 12px; padding: 10px; border-radius: 10px; border: 1.5px solid var(--border); background: var(--surface); color: var(--navy); font-size: 14px; font-weight: 700; cursor: pointer; }
-#ann-new-btn.hidden + .pr-entry-btn { display: none; }
+.pr-entry-btn { display: block; width: 100%; margin: 20px 0 24px; padding: 10px; border-radius: 10px; border: 1.5px solid var(--border); background: var(--surface); color: var(--navy); font-size: 14px; font-weight: 700; cursor: pointer; }
+#ann-new-btn.hidden ~ .pr-entry-btn { display: none; }
 /* 選択画面 */
 .pr-pick-note { font-size: 12px; color: var(--text-sub); margin-bottom: 10px; line-height: 1.6; }
 .pr-pick-row { display: flex; align-items: flex-start; gap: 8px; padding: 10px 2px; border-bottom: 1px solid var(--border); font-size: 14px; color: var(--navy); cursor: pointer; }
@@ -2329,7 +2329,6 @@ header {
         <span style="font-size:18px;line-height:1">＋</span>
         <span>新しいお知らせを作成</span>
       </button>
-      <button id="ann-print-btn" class="pr-entry-btn" onclick="openAnnPrintPicker()">🖨 周知まとめ</button>
       <div id="search-bar" class="search-bar hidden">
         <span class="search-icon">🔍</span>
         <input type="search" id="search-input" class="search-input"
@@ -2349,6 +2348,7 @@ header {
         <button id="ann-filter-scheduled" class="chip hidden" onclick="filterAnn('scheduled',this)">⏰ 予約中</button>
       </div>
       <div id="ann-list"></div>
+      <button id="ann-print-btn" class="pr-entry-btn" onclick="openAnnPrintPicker()">🖨 周知まとめ</button>
       <div id="ann-detail" class="hidden"></div>
       <div id="ann-reach" class="hidden"></div>
     </div>
@@ -2704,7 +2704,7 @@ header {
 // ヘッダーバッジ・ユーザーメニュー・アプリ情報画面・利用状況計測(sessions.appVersion)は
 // すべてこの定数を参照する(#version-badge/#um-version-subtitleへは初期化処理でJSから反映、
 // アプリ情報画面・recordSession()は関数内で直接参照)
-const APP_VERSION = '0.5.2';
+const APP_VERSION = '0.5.3';
 
 /* ===== データ ===== */
 
@@ -4079,6 +4079,7 @@ async function saveNotifPrefs() {
 
 // 更新履歴。git履歴・HANDOFF.md・TECH_DEBT.mdから裏の取れる範囲で記録する(過去分を遡って捏造しない)
 const CHANGELOG = [
+  { version: '0.5.3', items: ['「周知まとめ」ボタンを、周知タブの一番下に移動'] },
   { version: '0.5.2', items: ['お知らせのカテゴリを廃止し、よく使うタグ(安全・業務・設備・その他・センター)をボタンで付けられるように', '管理者はチャットを開くと最初から「管理者班」が表示されるように'] },
   { version: '0.5.1', items: ['お知らせに管理者の「確認済」ボタンを追加(管理者どうしで確認状況を共有)', '「周知まとめ」を追加(選んだお知らせをA4 1枚に印刷。管理者のみ)'] },
   { version: '0.5', items: ['お知らせに画像を添付できるように(1件につき最大3枚。本文の下に表示)', '画像をタップすると全画面で表示し、拡大して細部まで見られます', '一覧で画像付きのお知らせに🖼マークを表示'] },
