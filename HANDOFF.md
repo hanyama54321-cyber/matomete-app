@@ -1,10 +1,10 @@
-# 引き継ぎ書(2026-10-15時点)
+# 引き継ぎ書(2026-10-29時点)
 
 新しいセッションで作業を再開する際は、まずこのファイルと [README.md](README.md)・[TECH_DEBT.md](TECH_DEBT.md) を読んでください。
 
 ## プロジェクト概要
 
-- **リポジトリ**: `matomete-app`(安全配送まとめてアプリ)。単一ファイルSPA([index.html](index.html)、約8850行)+ Firebase(Firestore/Auth/Storage/**Cloud Functions/FCM**)。
+- **リポジトリ**: `matomete-app`(安全配送まとめてアプリ)。単一ファイルSPA([index.html](index.html)、約9750行)+ Firebase(Firestore/Auth/Storage/**Cloud Functions/FCM**)。
 - **ブランチ運用**: `main`=本番公開中(GitHub Pages、Firebase接続版)、`develop`=開発中。リリース時は`develop`→`main`マージ(手順は[README.md](README.md)参照)。
 - **Firebaseプロジェクト**: `anzen-matomete-app`(Blazeプラン、asia-northeast1)。
 - **アプリバージョン**: **v0.5.2(mainへ本公開済み)**。
@@ -37,6 +37,19 @@ v0.4.1がmain未マージの時期にv0.4.1のマージへ未検証コードが�
 一時的に切っていたものです。内容は`v0.4.2`タグと`v0.4.1-pre-onclick-sweep`から復元できます。
 
 ## 次のセッションで最初に確認すること
+
+### いまの状態(2026-10-29)
+
+- **本番は v0.5.2**(`main` = `6598f6b`、タグ`v0.5.2`)。v0.5.2 まで実機確認は完了している
+- **`develop`の凍結はなし。** `develop`は`main`より**記録だけのコミットが1件**先行している(`648547e` v0.5.2 の実機確認完了の記録)。
+  `main`を版タグと一致させておくため意図的にマージしておらず、**次のリリースに同梱する**
+- **着手中・指示待ちの作業はない。** 次の指示書を待つ。南野さんの指示書には毎回「マージ・タグ付け・(必要なら)ルールの
+  デプロイ・Pages 反映確認まで Claude Code が実施」と書かれており、iOS 実機確認は南野さんが行う
+- **残っている確認は v0.4.7 の通知受信だけ**(南野さんが後日確認する取り決め。下の v0.4.7 の節)
+- 作業の流れは毎回同じ: 着手前に前回の実機確認の完了を HANDOFF に反映して凍結を解除 → 作業ごとにコミット →
+  検証(エミュレーター・ブラウザ) → バージョンとドキュメント → ロールバック用タグ → `--no-commit`で確認して
+  `--no-ff`マージ →(ルールを変えた版は Pages より先にルールをデプロイ)→ 版タグ → Pages 反映と本番の版表記を確認 →
+  実機確認の結果が来るまで`develop`を凍結
 
 ### ⚠️ 一括投稿ツール(matomete-broadcast)との関係
 
@@ -1047,6 +1060,21 @@ iPhoneのホーム画面追加(standalone)表示で、`#bottom-nav`(下部タブ
   `#app`の`style.display='flex'`も設定する。`switchTab()`は`markBadgeSeen()`が走るため使わず、
   `.tab-panel`の`active`を直接付け替える。未認証のため`fetchXxxAllDrivers()`は`permission-denied`を
   コンソールに出す(シミュレーション由来で本番とは無関係)ので、必要なら関数を空のスタブに差し替える
+- **エミュレーターで実際にログインして確かめる方法**(v0.4.9〜v0.5.2で使用): リポジトリの`index.html`は変えず、
+  スクラッチパッドに写した`index.html`の`fbFunctions`の定義の直後にだけ`fbAuth.useEmulator(...)` /
+  `fbDb.useEmulator(...)`(必要なら`fbStorage`・`fbFunctions`も)を足し、`python -m http.server`で配信する。
+  試験データは`functions/node_modules/firebase-admin`で`FIRESTORE_EMULATOR_HOST`等を指定して入れ、
+  Auth のユーザーも作る(パスワードはその場で乱数生成し、チャットには出さない)。ログインは
+  「乗務員コード@matomete.local」と「パスワード+`_mtm`」
+- **別のプロジェクト(`matomete-meiho`等)のエミュレーターが既定ポート(8080/9099/9199/4000)を使っていることがある。**
+  そのときは止めずに、別ポートの設定ファイル(例: `firebase.altports.json`。コミットしない)を作って
+  `firebase emulators:start --config firebase.altports.json`で起動する。ルールテストも
+  `npx firebase-tools emulators:exec --config firebase.altports.json --only firestore,storage "node --test test/rules/*.test.js"`
+  で流せる(`test/rules/helpers.js`が`FIRESTORE_EMULATOR_HOST`等を読むため)。Browserペインの`preview_start`で
+  エミュレーターを起動する場合は、監視するポートを UI(例 4100)にしないと1分で止められる
+- **印刷(周知まとめ)の確認方法**: 検証用の写しに試験データを組み立てるスクリプトを足し、Edge のヘッドレス印刷で PDF にする。
+  `msedge --headless=new --disable-gpu --no-pdf-header-footer --user-data-dir=<毎回別のフォルダ> --virtual-time-budget=8000
+  --print-to-pdf=<出力> <file:///...?printtest=...>`。PDF のページ数・`/MediaBox`(A4縦は595×842)・見た目(Read で開ける)を確認する
 - **幅の実測は`resize_window`で375px / 414pxに設定**して行う。終わったら`preset: "desktop"`で戻すこと。非表示の親要素(`.hidden`)や非アクティブなタブ(`.tab-panel`に`active`が無い)の中は寸法が0になるので、測る前に表示状態にする。
 
 ## テスト・デプロイ手順(次回も同じ)
